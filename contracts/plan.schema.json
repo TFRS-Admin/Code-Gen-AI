@@ -1,0 +1,405 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://code-gen-ai.local/schemas/plan.schema.json",
+  "title": "CodeGenAI Generation Plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "planId",
+    "generationRequestId",
+    "summary",
+    "assumptions",
+    "target",
+    "userStories",
+    "dataModel",
+    "routes",
+    "componentNeeds",
+    "sourceStrategy",
+    "fileManifest",
+    "tasks",
+    "verification",
+    "risks"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "planId": {
+      "type": "string",
+      "pattern": "^plan_[A-Za-z0-9_-]+$"
+    },
+    "generationRequestId": {
+      "type": "string",
+      "pattern": "^gen_[A-Za-z0-9_-]+$"
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 10
+    },
+    "assumptions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "target": {
+      "type": "object",
+      "required": [
+        "repo",
+        "type",
+        "name"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "repo": {
+          "type": "string",
+          "enum": [
+            "Code-Gen-AI",
+            "TFRSupply-frontend",
+            "tfrsupply-storefront"
+          ]
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "app",
+            "page",
+            "component",
+            "feature",
+            "repair"
+          ]
+        },
+        "name": {
+          "type": "string"
+        }
+      }
+    },
+    "userStories": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "asA",
+          "iWant",
+          "soThat",
+          "priority"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "asA": {
+            "type": "string"
+          },
+          "iWant": {
+            "type": "string"
+          },
+          "soThat": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "must",
+              "should",
+              "could",
+              "wont"
+            ]
+          }
+        }
+      }
+    },
+    "dataModel": {
+      "type": "object",
+      "required": [
+        "entities"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "entities": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "fields"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "fields": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "name",
+                    "type",
+                    "required"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "required": {
+                      "type": "boolean"
+                    },
+                    "description": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "routes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "name",
+          "purpose"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "components": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "componentNeeds": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "category",
+          "purpose",
+          "designNotes"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "requiredProps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "dataDependencies": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "accessibilityNeeds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "designNotes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "sourceStrategy": {
+      "type": "object",
+      "required": [
+        "preferredOrder",
+        "disallowedDependencies",
+        "customBuildPolicy"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "preferredOrder": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "disallowedDependencies": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "customBuildPolicy": {
+          "type": "string"
+        }
+      }
+    },
+    "fileManifest": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "purpose",
+          "artifactType"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "artifactType": {
+            "type": "string",
+            "enum": [
+              "source",
+              "test",
+              "config",
+              "doc",
+              "asset"
+            ]
+          },
+          "dependsOn": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "tasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "phase",
+          "acceptanceCriteria"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string",
+            "enum": [
+              "define",
+              "plan",
+              "build",
+              "verify",
+              "review",
+              "ship"
+            ]
+          },
+          "acceptanceCriteria": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "required": [
+        "requiredChecks"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "requiredChecks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "previewSmokeTest": {
+          "type": "string"
+        },
+        "manualReviewChecklist": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "risks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "risk",
+          "mitigation"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "risk": {
+            "type": "string"
+          },
+          "mitigation": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "openQuestions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

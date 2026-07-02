@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://code-gen-ai.local/schemas/generation-request.schema.json",
+  "title": "CodeGenAI Generation Request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "projectId",
+    "prompt",
+    "targetRepo",
+    "targetType",
+    "designProfile"
+  ],
+  "properties": {
+    "projectId": {
+      "type": "string"
+    },
+    "prompt": {
+      "type": "string",
+      "minLength": 10
+    },
+    "targetRepo": {
+      "type": "string",
+      "enum": [
+        "Code-Gen-AI",
+        "TFRSupply-frontend",
+        "tfrsupply-storefront"
+      ]
+    },
+    "targetType": {
+      "type": "string",
+      "enum": [
+        "app",
+        "page",
+        "component",
+        "feature",
+        "repair"
+      ]
+    },
+    "designProfile": {
+      "type": "string",
+      "const": "tfrs-tactical-command-deck"
+    },
+    "constraints": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "preferredProvider": {
+      "type": "string",
+      "enum": [
+        "openai",
+        "anthropic",
+        "mock"
+      ]
+    },
+    "previewMode": {
+      "type": "string",
+      "enum": [
+        "mock-only",
+        "staging"
+      ],
+      "default": "mock-only"
+    }
+  }
+}

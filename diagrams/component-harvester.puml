@@ -1,0 +1,23 @@
+@startuml
+title Component Harvester Pipeline
+start
+:Receive component requirements from plan;
+:Search internal TFRSupply catalog;
+if (Internal match?) then (yes)
+  :Select internal component;
+else (no)
+  :Search approved external registries;
+  :Score candidates;
+  if (Candidate score >= threshold?) then (yes)
+    :Select best candidate;
+  else (no)
+    :Create custom-build exception;
+  endif
+endif
+:Extract TSX, dependencies, styles, examples;
+:Analyze license and dependency weight;
+:Adapt imports and classes;
+:Apply TFRS tokens;
+:Generate manifest;
+stop
+@enduml

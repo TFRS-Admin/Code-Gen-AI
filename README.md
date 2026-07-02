@@ -1,25 +1,50 @@
-# TFRS-Admin Repo Template
+# Code-Gen-AI Documentation Suite
 
-This is the base template for all new TFRS-Admin repositories.
+Generated: 2026-07-02
 
-When you create a new repo using this template, it will automatically create:
+This suite converts the supplied architecture brief into contractor-ready Markdown documentation for **Code-Gen-AI / TFRS Modular Vibe Coding Platform** and its AI assistant personality, **Blair**.
 
-- `main` — production
-- `develop` — active development (use this as your working branch)
-- `staging` — pre-production testing
-- `feature/init` — starting feature branch
+## Reading order
 
-## How to use this template
+1. `docs/00-documentation-map.md`
+2. `docs/01-main-spec.md`
+3. `docs/02-requirements.md`
+4. `docs/03-system-architecture.md`
+5. `docs/04-repository-contracts.md`
+6. `docs/05-agent-lifecycle.md`
+7. `docs/06-component-harvester.md`
+8. `docs/07-design-system.md`
+9. `docs/08-live-preview-runtime.md`
+10. `docs/09-api-contracts.md`
+11. `docs/10-data-model.md`
+12. `docs/11-security-threat-model.md`
+13. `docs/12-testing-quality-gates.md`
+14. `docs/13-implementation-plan.md`
+15. `docs/14-milestones.md`
+16. `docs/15-gathering-results.md`
 
-When creating a new repo on GitHub:
-1. Click **"Use this template"** instead of creating a blank repo
-2. The branch structure will auto-populate on first push
+## AI tool entry points
 
-## Branch Rules
+- `CLAUDE.md`
+- `.cursor/rules/blair-agent-lifecycle.mdc`
+- `.github/copilot-instructions.md`
+- `prompts/blair-system-prompt.md`
 
-| Branch | Purpose |
-|---|---|
-| `main` | Production only — never commit directly |
-| `develop` | All development work starts here |
-| `staging` | Testing before going to production |
-| `feature/*` | Individual features, branched from `develop` |
+## Executable contracts
+
+- `contracts/plan.schema.json`
+- `contracts/generation-request.schema.json`
+- `contracts/component-manifest.schema.json`
+- `contracts/openapi.yaml`
+
+## Diagrams
+
+PlantUML diagrams are in `diagrams/`.
+
+```bash
+plantuml diagrams/*.puml
+```
+
+## External source notes
+
+See `docs/18-source-notes.md`.

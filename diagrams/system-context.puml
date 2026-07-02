@@ -1,0 +1,24 @@
+@startuml
+title Code-Gen-AI System Context
+actor "Builder / Product Owner" as User
+rectangle "Code-Gen-AI Platform" {
+  component "Blair UI" as Blair
+  component "Generation API" as API
+  component "Preview Runtime" as Preview
+  component "Component Harvester" as Harvester
+}
+cloud "LLM Providers\nOpenAI / Anthropic" as Providers
+database "Persistence" as DB
+folder "TFRSupply-frontend" as DS
+folder "tfrsupply-storefront" as Storefront
+cloud "Approved External Registries" as Registries
+User --> Blair
+Blair --> API
+API --> Providers
+API --> DB
+API --> Harvester
+Harvester --> DS
+Harvester --> Registries
+API --> Preview
+API --> Storefront
+@enduml
