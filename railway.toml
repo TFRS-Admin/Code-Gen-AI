@@ -1,0 +1,16 @@
+[build]
+builder = "nixpacks"
+
+[[services]]
+name = "blair-server"
+source = "server"
+startCommand = "npm run start"
+buildCommand = "npm install && npm run build && npm run migrate"
+healthcheckPath = "/api/health"
+healthcheckTimeout = 30
+
+[[services]]
+name = "blair-frontend"
+source = "code_gen_extracted"
+startCommand = "npm run preview"
+buildCommand = "npm install && npm run build"

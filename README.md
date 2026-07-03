@@ -1,27 +1,41 @@
-# Code-Gen-AI Documentation Suite
+# Code-Gen-AI: GitHub-Connected AI Dev Agent Dashboard
 
-Generated: 2026-07-02
+**AI Assistant Personality:** Blair
+**Niche:** Run AI coding agents against real GitHub repos with branch previews, QA, and PRs.
 
-This suite converts the supplied architecture brief into contractor-ready Markdown documentation for **Code-Gen-AI / TFRS Modular Vibe Coding Platform** and its AI assistant personality, **Blair**.
+## The Vision
 
-## Reading order
+Code-Gen-AI is not a generic "build an app from a prompt" tool. It is an orchestration product built around AI agents. 
+
+We provide the **runtime infrastructure** that sits between a model (like Claude, OpenAI, or local Ollama) and a GitHub repository. Instead of fighting with consumer credit limits and copy-pasting code, you use Blair as a dashboard to manage the full developer lifecycle.
+
+### The MVP Workflow
+1. **Connect GitHub repo**
+2. **Select base branch**
+3. **Paste prompt** (or run the Consultation phase)
+4. **Agent creates feature branch**
+5. **Runs implementation in sandbox** (Docker/Vite)
+6. **Runs QA** (npm lint/build/typecheck/test)
+7. **Opens live preview URL**
+8. **Shows diff**
+9. **Opens PR**
+
+## Architecture
+
+- **Frontend:** React/Vite dashboard
+- **Backend:** Node.js/Express (Job Runner & Orchestrator)
+- **Database:** Postgres (Job history, plans, audit trails)
+- **Preview:** Vite dev server per branch, exposed through a reverse proxy
+- **Deployment:** Railway (Handles frontend, backend, Postgres, and background jobs natively)
+
+## Reading order for Contractors/AI
 
 1. `docs/00-documentation-map.md`
 2. `docs/01-main-spec.md`
-3. `docs/02-requirements.md`
-4. `docs/03-system-architecture.md`
-5. `docs/04-repository-contracts.md`
-6. `docs/05-agent-lifecycle.md`
-7. `docs/06-component-harvester.md`
-8. `docs/07-design-system.md`
-9. `docs/08-live-preview-runtime.md`
-10. `docs/09-api-contracts.md`
-11. `docs/10-data-model.md`
-12. `docs/11-security-threat-model.md`
-13. `docs/12-testing-quality-gates.md`
-14. `docs/13-implementation-plan.md`
-15. `docs/14-milestones.md`
-16. `docs/15-gathering-results.md`
+3. `docs/03-system-architecture.md`
+4. `docs/05-agent-lifecycle.md`
+5. `docs/10-data-model.md`
+6. `docs/14-milestones.md`
 
 ## AI tool entry points
 
@@ -36,15 +50,4 @@ This suite converts the supplied architecture brief into contractor-ready Markdo
 - `contracts/generation-request.schema.json`
 - `contracts/component-manifest.schema.json`
 - `contracts/openapi.yaml`
-
-## Diagrams
-
-PlantUML diagrams are in `diagrams/`.
-
-```bash
-plantuml diagrams/*.puml
-```
-
-## External source notes
-
-See `docs/18-source-notes.md`.
+- `contracts/tfrs-schema-registry.md`
