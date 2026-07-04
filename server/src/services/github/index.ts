@@ -6,23 +6,43 @@
  * through the GitHub REST API rather than local git commands.
  */
 
+import { checkGithubToken } from '../../config';
+
 let octokitClient: any = null;
+let cachedTokenSignature: string | null = null;
+
+/** Cheap, non-cryptographic fingerprint used only to detect that GITHUB_TOKEN changed — never logged or exposed. */
+function tokenSignature(token: string): string {
+  return `${token.length}:${token.slice(0, 4)}:${token.slice(-4)}`;
+}
 
 /**
- * Lazily constructs (and caches) the Octokit client, authenticated with
- * GITHUB_TOKEN. @octokit/rest is ESM-only, so it is loaded via dynamic
- * import from this CommonJS module.
+ * Lazily constructs the Octokit client, authenticated with GITHUB_TOKEN.
+ * @octokit/rest is ESM-only, so it is loaded via dynamic import from this
+ * CommonJS module.
+ *
+ * The token is validated on every call rather than trusting an indefinitely
+ * cached client: if GITHUB_TOKEN is missing we fail with a clear error every
+ * time (not just on first boot), and if the token value changes (e.g. a
+ * Railway var rotation without a full process restart) the cached client is
+ * rebuilt instead of silently continuing to auth with the stale value.
  */
 async function getClient(): Promise<any> {
-  if (octokitClient) return octokitClient;
+  const status = checkGithubToken();
+  if (!status.hasToken) {
+    throw new Error(`GITHUB_TOKEN is not set in the environment: ${status.message}`);
+  }
 
-  const token = process.env.GITHUB_TOKEN;
-  if (!token) {
-    throw new Error('GITHUB_TOKEN is not set in the environment');
+  const token = process.env.GITHUB_TOKEN as string;
+  const signature = tokenSignature(token);
+
+  if (octokitClient && cachedTokenSignature === signature) {
+    return octokitClient;
   }
 
   const { Octokit } = await import('@octokit/rest');
   octokitClient = new Octokit({ auth: token });
+  cachedTokenSignature = signature;
   return octokitClient;
 }
 
