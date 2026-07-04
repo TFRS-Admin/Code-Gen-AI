@@ -1,11 +1,13 @@
 import express from 'express';
 import cors from 'cors';
-import { config } from './config';
+import { config, logGithubTokenStatus } from './config';
 import { requestId, errorHandler, notFound } from './middleware';
 import healthRouter from './routes/health';
 import generationsRouter from './routes/generations';
 import jobsRouter from './routes/jobs';
 import githubRouter from './routes/github';
+
+logGithubTokenStatus();
 
 const app = express();
 
