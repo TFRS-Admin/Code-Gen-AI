@@ -160,6 +160,50 @@ export async function deleteFile(owner: string, repo: string, branch: string, pa
   }
 }
 
+/** Lists all repositories accessible to the authenticated token, sorted alphabetically by full_name. */
+export async function listRepos(): Promise<
+  Array<{ full_name: string; name: string; private: boolean; default_branch: string }>
+> {
+  try {
+    const octokit = await getClient();
+    const repos = await octokit.paginate(octokit.rest.repos.listForAuthenticatedUser, {
+      per_page: 100,
+      affiliation: 'owner,collaborator,organization_member',
+    });
+    return repos
+      .map((r: any) => ({
+        full_name: r.full_name,
+        name: r.name,
+        private: r.private,
+        default_branch: r.default_branch,
+      }))
+      .sort((a: { full_name: string }, b: { full_name: string }) => a.full_name.localeCompare(b.full_name));
+  } catch (err: any) {
+    throw wrapError('listRepos()', err);
+  }
+}
+
+/** Lists all branches for a repo, with the default branch first, then alphabetically. */
+export async function listBranches(owner: string, repo: string): Promise<Array<{ name: string }>> {
+  try {
+    const octokit = await getClient();
+    const [branches, repoInfo] = await Promise.all([
+      octokit.paginate(octokit.rest.repos.listBranches, { owner, repo, per_page: 100 }),
+      octokit.rest.repos.get({ owner, repo }),
+    ]);
+    const defaultBranch = repoInfo.data.default_branch;
+    const names: string[] = branches.map((b: any) => b.name);
+    names.sort((a, b) => {
+      if (a === defaultBranch) return -1;
+      if (b === defaultBranch) return 1;
+      return a.localeCompare(b);
+    });
+    return names.map((name) => ({ name }));
+  } catch (err: any) {
+    throw wrapError(`listBranches(${owner}/${repo})`, err);
+  }
+}
+
 /** Creates a Pull Request and returns its HTML URL. */
 export async function createPullRequest(
   owner: string,

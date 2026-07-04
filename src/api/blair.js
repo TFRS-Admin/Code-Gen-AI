@@ -60,6 +60,18 @@ export const BlairAPI = {
   async getHealth() {
     return request('/api/health');
   },
+
+  // Lists all repos accessible to the server's GITHUB_TOKEN.
+  async listRepos() {
+    const body = await request('/api/github/repos');
+    return body.data;
+  },
+
+  // Lists branches for a given owner/repo.
+  async listBranches(owner, repo) {
+    const body = await request(`/api/github/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/branches`);
+    return body.data;
+  },
 };
 
 export default BlairAPI;
