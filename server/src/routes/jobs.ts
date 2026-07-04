@@ -1,5 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { getJob, listJobs } from '../services/orchestrator';
+import { getJob, listJobs, approveJob } from '../services/orchestrator';
 
 const router = Router();
 
@@ -19,6 +19,24 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
     const job = await getJob(req.params.id);
     if (!job) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Job not found' } });
     res.json({ ok: true, data: job });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/jobs/:id/approve — ships a job in 'review' status by opening its Pull Request
+router.post('/:id/approve', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const job = await getJob(req.params.id);
+    if (!job) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Job not found' } });
+    if (job.status !== 'review') {
+      return res.status(409).json({
+        ok: false,
+        error: { code: 'INVALID_STATUS', message: `Job must be in 'review' status to approve (current: ${job.status})` },
+      });
+    }
+    const result = await approveJob(job.id);
+    res.json({ ok: true, data: result });
   } catch (err) {
     next(err);
   }
