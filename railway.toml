@@ -1,16 +1,12 @@
+# Railway deployment config for Code-Gen-AI (Blair Platform)
+# Frontend (Vite/React) lives at repo root.
+# Backend (Express/Node) lives in /server.
+# Railway: add two services pointing to this repo — one for root, one for /server.
+
 [build]
 builder = "nixpacks"
 
-[[services]]
-name = "blair-server"
-source = "server"
-startCommand = "npm run start"
-buildCommand = "npm install && npm run build && npm run migrate"
-healthcheckPath = "/api/health"
+[deploy]
+startCommand = "npm run preview -- --host 0.0.0.0 --port $PORT"
+healthcheckPath = "/"
 healthcheckTimeout = 30
-
-[[services]]
-name = "blair-frontend"
-source = "code_gen_extracted"
-startCommand = "npm run preview"
-buildCommand = "npm install && npm run build"
