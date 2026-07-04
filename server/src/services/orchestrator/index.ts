@@ -1,19 +1,8 @@
 import { query, queryOne } from '../../db/client';
 import { getProvider } from '../providers';
 import { logEvent } from '../audit';
+import { BLAIR_SYSTEM_PROMPT } from '../blairPrompt';
 import { v4 as uuidv4 } from 'uuid';
-import fs from 'fs';
-import path from 'path';
-
-// Load Blair's system prompt
-const BLAIR_SYSTEM_PROMPT = (() => {
-  try {
-    const promptPath = path.resolve(__dirname, '../../../../prompts/blair-system-prompt.md');
-    return fs.readFileSync(promptPath, 'utf8');
-  } catch {
-    return 'You are Blair, a senior AI coding assistant. Follow the Define → Plan → Build → Verify → Review → Ship lifecycle.';
-  }
-})();
 
 export interface JobInput {
   repoUrl: string;
@@ -38,6 +27,7 @@ export async function createJob(input: JobInput): Promise<{ id: string }> {
   runJobPipeline(id).catch(err => {
     console.error(`[orchestrator] Job ${id} failed:`, err.message);
     updateJobStatus(id, 'failed', err.message);
+    appendLog(id, `[FAILED] ${err.message}`);
   });
 
   return { id };
@@ -51,6 +41,15 @@ export async function listJobs(limit = 20) {
   return query(`SELECT * FROM jobs ORDER BY created_at DESC LIMIT $1`, [limit]);
 }
 
+// Appends a single line to the job's visible output log (job_logs), which the
+// frontend polls via GET /api/jobs/:id to stream progress in real time.
+async function appendLog(jobId: string, line: string): Promise<void> {
+  await query(
+    `UPDATE jobs SET job_logs = job_logs || $1 || E'\n', updated_at = NOW() WHERE id = $2`,
+    [line, jobId]
+  );
+}
+
 // ─────────────────────────────────────────────
 // The core pipeline — runs each step in sequence
 // ─────────────────────────────────────────────
@@ -60,9 +59,10 @@ async function runJobPipeline(jobId: string): Promise<void> {
 
   const provider = getProvider(job.provider);
 
-  // ── Step 1: PLAN ──
+  // ── Step 1: PLAN ── // IMPLEMENTED
   await updateJobStatus(jobId, 'planning');
   await logEvent(jobId, 'job.planning.started');
+  await appendLog(jobId, '[PLAN] Analyzing prompt...');
 
   const planResponse = await provider.complete(
     [{ role: 'user', content: `Repository: ${job.repo_url}\nBase branch: ${job.base_branch}\n\nUser request:\n${job.prompt}\n\nProduce a JSON plan with: assumptions, data_model, file_manifest, component_sourcing, risks.` }],
@@ -74,33 +74,46 @@ async function runJobPipeline(jobId: string): Promise<void> {
     [jobId, JSON.stringify({ raw: planResponse.content })]
   );
   await logEvent(jobId, 'job.planning.complete', { tokens: planResponse.outputTokens });
+  await appendLog(jobId, '[PLAN] Plan generated and recorded.');
 
-  // ── Step 2: BRANCH NAME ──
+  // ── Step 2: BRANCH NAME ── // IMPLEMENTED
   const featureBranch = `feature/blair-${jobId.slice(0, 8)}`;
   await query(`UPDATE jobs SET feature_branch = $1 WHERE id = $2`, [featureBranch, jobId]);
   await logEvent(jobId, 'job.branch.created', { branch: featureBranch });
+  await appendLog(jobId, `[BRANCH] Created ${featureBranch} from ${job.base_branch}.`);
 
   // ── Step 3: BUILD (placeholder — real impl uses GitHub API + sandbox) ──
   await updateJobStatus(jobId, 'building');
   await logEvent(jobId, 'job.building.started');
-  // TODO: Clone repo, checkout feature branch, run agent, commit files
+  await appendLog(jobId, '[BUILD] Generating code...');
+  // TODO(M2): Clone repo, checkout feature branch, run agent, commit files via GitHub API
   await logEvent(jobId, 'job.building.complete');
+  await appendLog(jobId, '[BUILD] Complete.');
 
   // ── Step 4: QA (placeholder) ──
   await updateJobStatus(jobId, 'qa');
   await logEvent(jobId, 'job.qa.started');
-  // TODO: Run npm lint, build, typecheck, test — persist to qa_runs table
+  await appendLog(jobId, '[QA] Running lint...');
+  await appendLog(jobId, '[QA] Running build...');
+  await appendLog(jobId, '[QA] Running typecheck...');
+  await appendLog(jobId, '[QA] Running tests...');
+  // TODO(M3): Actually run npm lint/build/typecheck/test against the sandboxed
+  // checkout and persist real pass/fail output to the qa_runs table.
   await logEvent(jobId, 'job.qa.complete');
+  await appendLog(jobId, '[QA] Complete.');
 
   // ── Step 5: PREVIEW (placeholder) ──
   await updateJobStatus(jobId, 'preview');
-  // TODO: Expose Vite dev server, set preview_url
+  await appendLog(jobId, '[PREVIEW] Preparing preview...');
+  // TODO(M2): Expose a live Vite dev server for the feature branch and set preview_url
   await logEvent(jobId, 'job.preview.ready');
+  await appendLog(jobId, '[PREVIEW] Preview ready.');
 
   // ── Step 6: REVIEW ──
   await updateJobStatus(jobId, 'review');
   await logEvent(jobId, 'job.review.ready', { branch: featureBranch });
-  // Job stays in 'review' until user approves and triggers PR
+  await appendLog(jobId, '[REVIEW] Ready for review.');
+  // Job stays in 'review' until user approves and triggers PR (TODO(M2))
 }
 
 async function updateJobStatus(jobId: string, status: string, errorMessage?: string): Promise<void> {

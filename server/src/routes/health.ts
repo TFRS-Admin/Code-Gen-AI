@@ -5,11 +5,10 @@ const router = Router();
 
 router.get('/', (_req, res) => {
   res.json({
-    ok: true,
-    service: 'blair-server',
-    env: config.nodeEnv,
+    status: 'ok',
     provider: config.providers.default,
-    timestamp: new Date().toISOString(),
+    version: '1.0.0',
+    uptime: process.uptime(),
   });
 });
 

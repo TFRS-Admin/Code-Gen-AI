@@ -59,6 +59,15 @@ module.exports = {
   				'accent-foreground': 'hsl(var(--sidebar-accent-foreground))',
   				border: 'hsl(var(--sidebar-border))',
   				ring: 'hsl(var(--sidebar-ring))'
+  			},
+  			tfrs: {
+  				bg: 'var(--tfrs-bg)',
+  				red: 'var(--tfrs-red)',
+  				gold: 'var(--tfrs-gold)',
+  				surface: 'var(--tfrs-surface)',
+  				border: 'var(--tfrs-border)',
+  				text: 'var(--tfrs-text)',
+  				muted: 'var(--tfrs-muted)'
   			}
   		},
   		keyframes: {

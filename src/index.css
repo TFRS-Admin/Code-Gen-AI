@@ -2,6 +2,23 @@
 @tailwind components;
 @tailwind utilities;
 
+/* TFRS Tactical Command Deck — design tokens */
+:root {
+  --tfrs-bg: #0a0e1a;
+  --tfrs-red: #c41e3a;
+  --tfrs-gold: #d4af37;
+  --tfrs-surface: #111827;
+  --tfrs-border: #1f2937;
+  --tfrs-text: #f9fafb;
+  --tfrs-muted: #6b7280;
+}
+
+body {
+  background-color: var(--tfrs-bg);
+  color: var(--tfrs-text);
+  font-family: Inter, system-ui, -apple-system, sans-serif;
+}
+
 
 /* :root {
   font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
