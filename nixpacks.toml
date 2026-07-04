@@ -1,0 +1,14 @@
+# Nixpacks config — FRONTEND service (Vite/React), served by Caddy.
+[phases.setup]
+nixPkgs = ["nodejs_20", "caddy"]
+
+[phases.install]
+# Nixpacks defaults NODE_ENV to production, which would skip devDependencies
+# (vite, @vitejs/plugin-react, typescript) needed to build. Install them explicitly.
+cmds = ["npm install --include=dev"]
+
+[phases.build]
+cmds = ["npm run build"]
+
+[start]
+cmd = "caddy run --config Caddyfile --adapter caddyfile"
