@@ -1,221 +1,292 @@
-import React, { useState, useEffect } from "react";
-import { Website } from "@/entities/Website";
-import { User } from "@/entities/User";
-import { InvokeLLM } from "@/integrations/Core";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { useLocation } from "react-router-dom";
+import { BlairAPI } from "@/api/blair";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Sparkles, Eye } from "lucide-react";
-import { motion } from "framer-motion";
+import { CheckCircle2, Circle, XCircle, Loader2, ExternalLink, GitPullRequest } from "lucide-react";
 
-import GeneratorForm from "../components/generator/GeneratorForm";
-import PreviewPanel from "../components/generator/PreviewPanel";
-import QuickTemplates from "../components/generator/QuickTemplates";
+const TERMINAL_STATUSES = ["shipped", "pr_opened", "failed", "cancelled"];
+const STATUS_ORDER = ["queued", "planning", "building", "qa", "preview", "review", "pr_opened", "shipped"];
+
+const STATUS_BADGE = {
+  queued: "QUEUED",
+  planning: "RUNNING",
+  building: "RUNNING",
+  qa: "QA",
+  preview: "REVIEW",
+  review: "REVIEW",
+  pr_opened: "DONE",
+  shipped: "DONE",
+  failed: "FAILED",
+  cancelled: "FAILED",
+};
+
+const PHASES = [
+  { label: "Plan", statuses: ["planning"] },
+  { label: "Build", statuses: ["building"] },
+  { label: "QA", statuses: ["qa"] },
+  { label: "Preview", statuses: ["preview"] },
+  { label: "Review", statuses: ["review"] },
+  { label: "Ship", statuses: ["pr_opened", "shipped"] },
+];
+
+function phaseState(job, phase) {
+  if (!job) return "pending";
+  if (job.status === "failed" || job.status === "cancelled") return "pending";
+  const currentIndex = STATUS_ORDER.indexOf(job.status);
+  const phaseIndex = STATUS_ORDER.indexOf(phase.statuses[0]);
+  const phaseLastIndex = STATUS_ORDER.indexOf(phase.statuses[phase.statuses.length - 1]);
+  if (currentIndex > phaseLastIndex) return "complete";
+  if (currentIndex >= phaseIndex && currentIndex <= phaseLastIndex) return "active";
+  return "pending";
+}
 
 export default function Dashboard() {
-  const [user, setUser] = useState(null);
-  const [formData, setFormData] = useState({
-    title: "",
-    description: "", 
-    category: "",
-    language: "en",
-    theme: "modern",
-    color_scheme: "blue"
-  });
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [generatedWebsite, setGeneratedWebsite] = useState(null);
-  const [recentProjects, setRecentProjects] = useState([]);
+  const location = useLocation();
+  const isNewJob = location.search.includes("new=true");
 
-  useEffect(() => {
-    loadUser();
-    loadRecentProjects();
+  const [repoUrl, setRepoUrl] = useState("TFRS-Admin/TFRSupply-frontend");
+  const [baseBranch, setBaseBranch] = useState("develop");
+  const [prompt, setPrompt] = useState("");
+  const [provider, setProvider] = useState("mock");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState(null);
+
+  const [activeJob, setActiveJob] = useState(null);
+  const pollRef = useRef(null);
+  const logRef = useRef(null);
+
+  const clearPoll = () => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  };
+
+  const pollJob = useCallback((id) => {
+    clearPoll();
+    pollRef.current = setInterval(async () => {
+      try {
+        const job = await BlairAPI.getJob(id);
+        setActiveJob(job);
+        if (TERMINAL_STATUSES.includes(job.status)) {
+          clearPoll();
+        }
+      } catch {
+        clearPoll();
+      }
+    }, 2000);
   }, []);
 
-  const loadUser = async () => {
-    try {
-      const currentUser = await User.me();
-      setUser(currentUser);
-    } catch (error) {
-      console.error("User not logged in");
-    }
-  };
-
-  const loadRecentProjects = async () => {
-    const projects = await Website.list("-created_date", 3);
-    setRecentProjects(projects);
-  };
-
-  const generateWebsite = async () => {
-    if (!formData.title || !formData.description || !formData.category) {
-      alert("Please fill in all required fields");
+  useEffect(() => {
+    if (isNewJob) {
+      setActiveJob(null);
       return;
     }
-
-    setIsGenerating(true);
-    try {
-      const prompt = `Create a complete, modern, responsive website with the following specifications:
-
-Title: ${formData.title}
-Description: ${formData.description}
-Category: ${formData.category}
-Language: ${formData.language}
-Theme: ${formData.theme}
-Color Scheme: ${formData.color_scheme}
-
-Generate a complete HTML page with embedded CSS that includes:
-- Modern, responsive design with mobile-first approach
-- Professional typography and spacing
-- Relevant content sections for a ${formData.category} website
-- Navigation menu, hero section, content areas, and footer
-- CSS animations and hover effects
-- Proper semantic HTML structure
-- Color scheme based on ${formData.color_scheme} colors
-- Content in ${formData.language} language (if not English)
-
-Make it production-ready and visually stunning. Include placeholder content that matches the website purpose.`;
-
-      const result = await InvokeLLM({
-        prompt,
-        response_json_schema: {
-          type: "object",
-          properties: {
-            html_content: { type: "string" },
-            css_content: { type: "string" },
-            description: { type: "string" }
+    // Load the most recent job, if any, so Dashboard isn't blank on load.
+    (async () => {
+      try {
+        const jobs = await BlairAPI.listJobs();
+        if (jobs && jobs.length > 0) {
+          setActiveJob(jobs[0]);
+          if (!TERMINAL_STATUSES.includes(jobs[0].status)) {
+            pollJob(jobs[0].id);
           }
         }
-      });
+      } catch {
+        // Server may be offline — leave the panel empty.
+      }
+    })();
+    return clearPoll;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isNewJob]);
 
-      const website = await Website.create({
-        ...formData,
-        html_content: result.html_content,
-        css_content: result.css_content,
-        generation_prompt: prompt,
-        status: "completed"
-      });
-
-      setGeneratedWebsite(website);
-      loadRecentProjects();
-    } catch (error) {
-      console.error("Error generating website:", error);
-      alert("Failed to generate website. Please try again.");
+  useEffect(() => {
+    if (logRef.current) {
+      logRef.current.scrollTop = logRef.current.scrollHeight;
     }
-    setIsGenerating(false);
+  }, [activeJob?.job_logs]);
+
+  const runBlair = async () => {
+    if (!repoUrl.trim() || !prompt.trim() || prompt.trim().length < 10) {
+      setSubmitError("Repository and a prompt of at least 10 characters are required.");
+      return;
+    }
+    setSubmitError(null);
+    setIsSubmitting(true);
+    try {
+      const { id } = await BlairAPI.submitJob({ repoUrl, baseBranch, prompt, provider });
+      const job = await BlairAPI.getJob(id);
+      setActiveJob(job);
+      pollJob(id);
+    } catch (err) {
+      setSubmitError(err.message);
+    }
+    setIsSubmitting(false);
   };
-
-  const downloadWebsite = () => {
-    if (!generatedWebsite) return;
-
-    const htmlContent = generatedWebsite.html_content;
-    const blob = new Blob([htmlContent], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${generatedWebsite.title.replace(/\s+/g, '-').toLowerCase()}.html`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
-
-  if (!user) {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-8">
-        <Card className="w-full max-w-md bg-white/10 backdrop-blur-xl border-white/20">
-          <CardContent className="p-8 text-center">
-            <div className="w-16 h-16 mx-auto mb-6 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full flex items-center justify-center">
-              <Sparkles className="w-8 h-8 text-white" />
-            </div>
-            <h2 className="text-2xl font-bold text-white mb-4">Welcome to WebCraft AI</h2>
-            <p className="text-gray-300 mb-6">Sign in to start creating beautiful websites with artificial intelligence</p>
-            <Button 
-              onClick={() => User.login()}
-              className="w-full bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600"
-            >
-              Sign in with Google
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
 
   return (
-    <div className="min-h-screen p-4 lg:p-8">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="mb-8">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="text-center lg:text-left"
-          >
-            <h1 className="text-4xl lg:text-5xl font-bold text-white mb-4">
-              Create Amazing Websites
-              <span className="bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent"> with AI</span>
-            </h1>
-            <p className="text-xl text-gray-300 mb-6">
-              Describe your vision, and watch as AI crafts a beautiful, responsive website in seconds
-            </p>
-          </motion.div>
+    <div className="p-8 grid lg:grid-cols-2 gap-8">
+      {/* Consultation Panel */}
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-mono font-bold uppercase tracking-wide text-tfrs-text">
+            Job Submission
+          </h1>
+          <p className="text-sm text-tfrs-muted mt-1">
+            Define the repo, the branch, and what you want Blair to build.
+          </p>
         </div>
 
-        <div className="grid lg:grid-cols-2 gap-8">
-          {/* Generator Form */}
-          <div className="space-y-6">
-            <GeneratorForm
-              formData={formData}
-              setFormData={setFormData}
-              onGenerate={generateWebsite}
-              isGenerating={isGenerating}
+        <div className="bg-tfrs-surface border border-tfrs-border p-6 space-y-5">
+          <div className="space-y-2">
+            <Label className="text-tfrs-muted text-xs font-mono uppercase">Repository</Label>
+            <Input
+              value={repoUrl}
+              onChange={(e) => setRepoUrl(e.target.value)}
+              placeholder="TFRS-Admin/TFRSupply-frontend"
+              className="bg-tfrs-bg border-tfrs-border text-tfrs-text font-mono"
             />
-
-            <QuickTemplates onTemplateSelect={setFormData} />
-
-            {/* Recent Projects */}
-            {recentProjects.length > 0 && (
-              <Card className="bg-white/5 backdrop-blur-xl border-white/20">
-                <CardHeader>
-                  <CardTitle className="text-white flex items-center gap-2">
-                    <Sparkles className="w-5 h-5" />
-                    Recent Projects
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {recentProjects.map((project) => (
-                      <div key={project.id} className="p-3 bg-white/5 rounded-lg">
-                        <h4 className="font-medium text-white">{project.title}</h4>
-                        <p className="text-sm text-gray-300 mb-2">{project.description}</p>
-                        <div className="flex items-center justify-between">
-                          <Badge variant="outline" className="text-xs border-white/20 text-gray-300">
-                            {project.category}
-                          </Badge>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="text-indigo-400 hover:text-white hover:bg-white/10"
-                            onClick={() => setGeneratedWebsite(project)}
-                          >
-                            <Eye className="w-4 h-4 mr-1" />
-                            View
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
           </div>
 
-          {/* Preview Panel */}
-          <PreviewPanel 
-            website={generatedWebsite}
-            onDownload={downloadWebsite}
-            isGenerating={isGenerating}
-          />
+          <div className="space-y-2">
+            <Label className="text-tfrs-muted text-xs font-mono uppercase">Base Branch</Label>
+            <Input
+              value={baseBranch}
+              onChange={(e) => setBaseBranch(e.target.value)}
+              placeholder="develop"
+              className="bg-tfrs-bg border-tfrs-border text-tfrs-text font-mono"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-tfrs-muted text-xs font-mono uppercase">Prompt</Label>
+            <Textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder="Describe what you want Blair to build..."
+              rows={8}
+              className="bg-tfrs-bg border-tfrs-border text-tfrs-text font-mono text-sm"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-tfrs-muted text-xs font-mono uppercase">Provider</Label>
+            <Select value={provider} onValueChange={setProvider}>
+              <SelectTrigger className="bg-tfrs-bg border-tfrs-border text-tfrs-text font-mono">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="mock">Mock</SelectItem>
+                <SelectItem value="openai">OpenAI</SelectItem>
+                <SelectItem value="anthropic">Anthropic</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {submitError && (
+            <p className="text-sm text-tfrs-red font-mono">{submitError}</p>
+          )}
+
+          <Button
+            onClick={runBlair}
+            disabled={isSubmitting}
+            className="w-full bg-tfrs-red hover:bg-tfrs-red/90 text-tfrs-text font-mono uppercase tracking-wide py-6 rounded-none"
+          >
+            {isSubmitting ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                Submitting...
+              </>
+            ) : (
+              "Run Blair"
+            )}
+          </Button>
         </div>
+      </div>
+
+      {/* Status Panel */}
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-mono font-bold uppercase tracking-wide text-tfrs-text">
+            Job Status
+          </h1>
+          <p className="text-sm text-tfrs-muted mt-1">Live pipeline progress.</p>
+        </div>
+
+        {!activeJob ? (
+          <div className="bg-tfrs-surface border border-tfrs-border p-12 text-center text-tfrs-muted font-mono text-sm">
+            No active job. Submit a job to see live status here.
+          </div>
+        ) : (
+          <div className="bg-tfrs-surface border border-tfrs-border p-6 space-y-6">
+            <div className="flex items-center justify-between">
+              <span className="font-mono text-xs text-tfrs-muted truncate">{activeJob.id}</span>
+              <Badge className="bg-tfrs-red text-tfrs-text border-none rounded-none font-mono">
+                {STATUS_BADGE[activeJob.status] || activeJob.status?.toUpperCase()}
+              </Badge>
+            </div>
+
+            {/* Phase Timeline */}
+            <div className="space-y-3">
+              {PHASES.map((phase) => {
+                const state = phaseState(activeJob, phase);
+                return (
+                  <div key={phase.label} className="flex items-center gap-3">
+                    {state === "complete" && <CheckCircle2 className="w-4 h-4 text-tfrs-gold" />}
+                    {state === "active" && <Loader2 className="w-4 h-4 text-tfrs-red animate-spin" />}
+                    {state === "pending" && <Circle className="w-4 h-4 text-tfrs-muted" />}
+                    <span className={`text-sm font-mono uppercase ${state === "pending" ? "text-tfrs-muted" : "text-tfrs-text"}`}>
+                      {phase.label}
+                    </span>
+                  </div>
+                );
+              })}
+              {activeJob.status === "failed" && (
+                <div className="flex items-center gap-3">
+                  <XCircle className="w-4 h-4 text-tfrs-red" />
+                  <span className="text-sm font-mono uppercase text-tfrs-red">
+                    Failed{activeJob.error_message ? `: ${activeJob.error_message}` : ""}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Output Log */}
+            <div>
+              <Label className="text-tfrs-muted text-xs font-mono uppercase mb-2 block">Output Log</Label>
+              <div
+                ref={logRef}
+                className="bg-black/40 border border-tfrs-border p-3 h-56 overflow-y-auto font-mono text-xs text-tfrs-text whitespace-pre-wrap"
+              >
+                {activeJob.job_logs || "Waiting for output..."}
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              {activeJob.preview_url && (
+                <a href={activeJob.preview_url} target="_blank" rel="noreferrer" className="flex-1">
+                  <Button variant="outline" className="w-full border-tfrs-border text-tfrs-text font-mono uppercase rounded-none">
+                    <ExternalLink className="w-4 h-4 mr-2" />
+                    Preview
+                  </Button>
+                </a>
+              )}
+              {activeJob.pr_url && (
+                <a href={activeJob.pr_url} target="_blank" rel="noreferrer" className="flex-1">
+                  <Button variant="outline" className="w-full border-tfrs-border text-tfrs-text font-mono uppercase rounded-none">
+                    <GitPullRequest className="w-4 h-4 mr-2" />
+                    Pull Request
+                  </Button>
+                </a>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
