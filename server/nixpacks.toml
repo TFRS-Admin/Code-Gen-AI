@@ -2,7 +2,9 @@
 nixPkgs = ["nodejs_20"]
 
 [phases.install]
-cmds = ["npm install"]
+# Nixpacks defaults NODE_ENV to production, which would skip devDependencies
+# (typescript) needed to build. Install them explicitly.
+cmds = ["npm install --include=dev"]
 
 [phases.build]
 cmds = ["npm run build"]
