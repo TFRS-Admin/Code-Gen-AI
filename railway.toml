@@ -1,12 +1,16 @@
-# Railway deployment config for Code-Gen-AI (Blair Platform)
-# Frontend (Vite/React) lives at repo root.
-# Backend (Express/Node) lives in /server.
-# Railway: add two services pointing to this repo — one for root, one for /server.
+# Railway deployment config — FRONTEND service (Vite/React).
+# Root directory for this service: repo root ("/").
+# Backend (Express/Node) config lives in server/railway.toml — set that
+# service's root directory to "/server" in the Railway dashboard.
+#
+# Build produces static assets in dist/; Caddy serves them at runtime
+# (see ./Caddyfile). Node/devDependencies (vite, etc.) are only needed
+# at build time — see nixpacks.toml for how they're installed.
 
 [build]
 builder = "nixpacks"
 
 [deploy]
-startCommand = "npm run preview -- --host 0.0.0.0 --port $PORT"
+startCommand = "caddy run --config Caddyfile --adapter caddyfile"
 healthcheckPath = "/"
 healthcheckTimeout = 30
