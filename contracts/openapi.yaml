@@ -1,0 +1,113 @@
+openapi: 3.1.0
+info:
+  title: Code-Gen-AI API
+  version: 0.1.0
+servers:
+  - url: /api
+paths:
+  /health:
+    get:
+      summary: Health check
+      responses:
+        "200":
+          description: Healthy
+  /generations:
+    post:
+      summary: Create generation request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "./generation-request.schema.json"
+      responses:
+        "200":
+          description: Created
+  /generations/{generationId}:
+    get:
+      summary: Get generation state
+      parameters:
+        - name: generationId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Generation state
+  /generations/{generationId}/events:
+    get:
+      summary: Stream lifecycle events
+      parameters:
+        - name: generationId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Server-sent event stream
+  /generations/{generationId}/plan:
+    post:
+      summary: Create or revise plan
+      parameters:
+        - name: generationId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Plan created
+  /generations/{generationId}/build:
+    post:
+      summary: Build generated artifacts
+      parameters:
+        - name: generationId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Build started
+  /generations/{generationId}/files:
+    get:
+      summary: Get generated files
+      parameters:
+        - name: generationId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: File map
+  /generations/{generationId}/preview-sessions:
+    post:
+      summary: Create preview session
+      parameters:
+        - name: generationId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Preview bundle
+  /generations/{generationId}/review:
+    post:
+      summary: Review generation
+      parameters:
+        - name: generationId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Review recorded
+  /generations/{generationId}/exports:
+    post:
+      summary: Export approved generation
+      parameters:
+        - name: generationId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Export created

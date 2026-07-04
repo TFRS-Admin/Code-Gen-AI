@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://code-gen-ai.local/schemas/component-manifest.schema.json",
+  "title": "CodeGenAI Component Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "manifestId",
+    "generationPlanId",
+    "requirementId",
+    "componentName",
+    "sourceType",
+    "sourceName",
+    "license",
+    "score",
+    "originalFiles",
+    "adaptedFiles",
+    "dependenciesAdded",
+    "dependenciesRemoved",
+    "tfrsAdaptations",
+    "riskNotes"
+  ],
+  "properties": {
+    "manifestId": {
+      "type": "string",
+      "pattern": "^hc_[A-Za-z0-9_-]+$"
+    },
+    "generationPlanId": {
+      "type": "string",
+      "pattern": "^plan_[A-Za-z0-9_-]+$"
+    },
+    "requirementId": {
+      "type": "string"
+    },
+    "componentName": {
+      "type": "string"
+    },
+    "sourceType": {
+      "type": "string",
+      "enum": [
+        "internal",
+        "base44",
+        "shadcn",
+        "github",
+        "custom"
+      ]
+    },
+    "sourceName": {
+      "type": "string"
+    },
+    "sourceUrl": {
+      "type": "string"
+    },
+    "license": {
+      "type": "string"
+    },
+    "score": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "originalFiles": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "adaptedFiles": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "dependenciesAdded": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "dependenciesRemoved": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "tfrsAdaptations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "riskNotes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "customBuildException": {
+      "type": "string"
+    }
+  }
+}

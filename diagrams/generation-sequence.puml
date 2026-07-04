@@ -1,0 +1,29 @@
+@startuml
+title Generation Request Sequence
+actor User
+participant "Generator UI" as UI
+participant "Generation API" as API
+participant "Orchestrator" as Orch
+participant "Provider Gateway" as LLM
+participant "Harvester" as Harv
+database "DB" as DB
+participant "Preview Runtime" as Preview
+
+User -> UI: Submit intent
+UI -> API: POST /api/generations
+API -> DB: Insert generation_request
+API -> Orch: start(request_id)
+Orch -> LLM: create structured plan
+LLM --> Orch: JSON plan
+Orch -> DB: Persist generation_plan
+Orch -> Harv: resolve component needs
+Harv --> Orch: component manifests
+Orch -> LLM: generate/adapt files
+LLM --> Orch: file map
+Orch -> DB: Persist artifacts
+UI -> API: GET files
+API --> UI: file map
+UI -> Preview: mount file map
+Preview --> UI: build/runtime status
+UI -> API: report preview result
+@enduml

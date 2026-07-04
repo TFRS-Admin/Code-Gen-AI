@@ -1,0 +1,38 @@
+---
+description: Code-Gen-AI Blair lifecycle and architecture rules
+globs:
+  - "**/*"
+alwaysApply: true
+---
+
+# Code-Gen-AI Cursor Rules
+
+## Mandatory lifecycle
+
+Do not write code until there is a plan:
+
+1. Define
+2. Plan
+3. Build
+4. Verify
+5. Review
+6. Ship
+
+## Architecture rules
+
+- React/Vite frontend.
+- Tailwind styling.
+- Radix/Shadcn-style local components.
+- TFRS Tactical Command Deck aesthetic.
+- Server-side provider gateway.
+- Zod schemas.
+- Sandpack MVP preview.
+- WebContainers only when full browser Node runtime is explicitly needed.
+
+## Forbidden shortcuts
+
+- No one-shot prompt-to-code.
+- No direct commit to main.
+- No unreviewed heavy UI library.
+- No exposed provider keys.
+- No production backend calls from preview code.

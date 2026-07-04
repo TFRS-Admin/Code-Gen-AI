@@ -1,0 +1,15 @@
+@startuml
+title Generation Lifecycle State Machine
+[*] --> DraftRequest
+DraftRequest --> Planned : valid plan created
+Planned --> Building : plan approved
+Building --> Verifying : files generated
+Verifying --> Building : verification failed
+Verifying --> Reviewing : verification passed
+Reviewing --> Building : changes requested
+Reviewing --> Exporting : approved
+Reviewing --> Rejected : rejected
+Exporting --> Shipped
+Rejected --> [*]
+Shipped --> [*]
+@enduml
