@@ -1,6 +1,11 @@
 # Nixpacks config — FRONTEND service (Vite/React), served by Caddy.
 [phases.setup]
-nixPkgs = ["nodejs_20", "caddy"]
+# Do NOT list "caddy" here: Nixpacks already bundles its own Caddy install
+# internally for static-asset serving. Declaring it again causes a Nix
+# profile conflict (two different caddy derivations both providing
+# share/bash-completion/completions/caddy.bash). The `caddy` binary used
+# by [start] below comes from that internal install, not from this list.
+nixPkgs = ["nodejs_20"]
 
 [phases.install]
 # Nixpacks defaults NODE_ENV to production, which would skip devDependencies
