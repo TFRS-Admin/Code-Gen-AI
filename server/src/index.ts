@@ -5,6 +5,7 @@ import { requestId, errorHandler, notFound } from './middleware';
 import healthRouter from './routes/health';
 import generationsRouter from './routes/generations';
 import jobsRouter from './routes/jobs';
+import githubRouter from './routes/github';
 
 const app = express();
 
@@ -17,6 +18,7 @@ app.use(requestId);
 app.use('/api/health', healthRouter);
 app.use('/api/generations', generationsRouter);
 app.use('/api/jobs', jobsRouter);
+app.use('/api/github', githubRouter);
 
 // Error handling (must be last)
 app.use(notFound);
