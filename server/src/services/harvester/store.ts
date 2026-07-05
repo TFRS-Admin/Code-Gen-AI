@@ -81,3 +81,14 @@ export async function searchRegistryComponents(q: string): Promise<RegistryCompo
     [`%${q}%`]
   );
 }
+
+/**
+ * Looks up a single registry component by its row id — distinct from
+ * searchRegistryComponents' name/category/description text search, which
+ * never matches an opaque UUID. Used by the adapt route to enrich a TFRS
+ * adaptation with the source component's registry metadata.
+ */
+export async function getRegistryComponentById(id: string): Promise<RegistryComponentRow | null> {
+  const rows = await query<RegistryComponentRow>(`SELECT * FROM registry_components WHERE id = $1`, [id]);
+  return rows[0] ?? null;
+}

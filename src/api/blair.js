@@ -87,6 +87,25 @@ export const BlairAPI = {
     );
     return body.data;
   },
+
+  // Lists (or searches, via `q`) the harvested component registry.
+  async getRegistryComponents({ source, q } = {}) {
+    const params = new URLSearchParams();
+    if (source) params.set('source', source);
+    if (q) params.set('q', q);
+    const qs = params.toString();
+    const body = await request(`/api/registry/components${qs ? `?${qs}` : ''}`);
+    return body.data;
+  },
+
+  // Adapts a component's code to TFRS design tokens. Returns { adaptedCode, tfrsClasses, componentMetadata }.
+  async adaptComponent(componentCode, componentId) {
+    const body = await request('/api/adapt/component', {
+      method: 'POST',
+      body: JSON.stringify({ componentCode, componentId }),
+    });
+    return body.data;
+  },
 };
 
 export default BlairAPI;

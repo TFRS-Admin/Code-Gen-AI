@@ -9,6 +9,7 @@ import Dashboard from './pages/Dashboard';
 import Projects from './pages/Projects';
 import Assistant from './pages/Assistant';
 import Settings from './pages/Settings';
+import ComponentHarvester from './pages/ComponentHarvester';
 
 function App() {
   return (
@@ -23,6 +24,7 @@ function App() {
           <Route path="/Projects" element={<Layout currentPageName="Projects"><Projects /></Layout>} />
           <Route path="/Assistant" element={<Layout currentPageName="Assistant"><Assistant /></Layout>} />
           <Route path="/Settings" element={<Layout currentPageName="Settings"><Settings /></Layout>} />
+          <Route path="/Harvester" element={<Layout currentPageName="Harvester"><ComponentHarvester /></Layout>} />
           <Route path="*" element={<PageNotFound />} />
         </Routes>
       </Router>

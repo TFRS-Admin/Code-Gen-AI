@@ -75,7 +75,15 @@ module.exports = {
   				surface: 'var(--tfrs-surface)',
   				border: 'var(--tfrs-border)',
   				text: 'var(--tfrs-text)',
-  				muted: 'var(--tfrs-muted)'
+  				muted: 'var(--tfrs-muted)',
+  				elevated: 'var(--tfrs-elevated)',
+  				'surface-2': 'var(--tfrs-surface-2)',
+  				'border-strong': 'var(--tfrs-border-strong)',
+  				'red-bright': 'var(--tfrs-red-bright)',
+  				steel: 'var(--tfrs-steel)',
+  				ink: 'var(--tfrs-ink)',
+  				success: 'var(--tfrs-success)',
+  				warning: 'var(--tfrs-warning)'
   			},
   			blair: {
   				bg: 'var(--blair-bg)',
