@@ -1,0 +1,96 @@
+# Machine-readable roadmap for Code-Gen-AI.
+# Sequenced by dependency, not calendar time — no dates are asserted anywhere in this
+# file unless directly evidenced by the repo (none were found at baseline time).
+# Canonical narrative version: docs/engineering/ENGINEERING_MASTER_PLAN.md (section 5).
+
+schema_version: 1
+generated_by: "engineering-baseline (2026-07-05)"
+
+phases:
+  - order: 1
+    id: phase-m3.2-closeout
+    title: "Close out M3.2 Component Adaptation"
+    milestone: M3.2
+    depends_on: []
+    description: >
+      Confirm src/pages/ComponentHarvester.jsx is wired end-to-end to /api/registry and
+      /api/adapt (not just covered at the API/unit-test layer), and decide whether candidate
+      scoring (docs/06-component-harvester.md:49-65) is in scope before M3.3 or deferred.
+    status: in_progress
+
+  - order: 2
+    id: phase-data-model-decision
+    title: "Resolve data-model target (open question)"
+    milestone: M3.3
+    depends_on: []
+    description: >
+      Decide whether M3.3+ build on the existing lean schema (jobs/plans/qa_runs) or introduce
+      the fuller ERD from docs/10-data-model.md (generation_requests, harvested_components,
+      component_sources, verification_runs, review_decisions, export_jobs). Blocks M3.3 table
+      design. See EMP open question 2.
+    status: planned
+
+  - order: 3
+    id: phase-m3.3-manifest-persistence
+    title: "M3.3 — Manifest Persistence"
+    milestone: M3.3
+    depends_on: [phase-data-model-decision]
+    description: >
+      Add manifest table(s), a manifest-generation service satisfying
+      contracts/component-manifest.schema.json, and wire it into the /api/adapt response path.
+    status: planned
+
+  - order: 4
+    id: phase-m4-verification-repair
+    title: "M4 — Verification / Repair Loop"
+    milestone: M4
+    depends_on: [phase-m3.3-manifest-persistence]
+    description: >
+      Replace the orchestrator's QA placeholder (server/src/services/orchestrator/index.ts:357-367)
+      with real lint/build/typecheck/test execution against the sandboxed checkout, persist to
+      qa_runs, and add a repair pass that feeds failures back to the provider.
+    status: planned
+
+  - order: 5
+    id: phase-m5-review-export
+    title: "M5 — Review / Export / PR Workflow"
+    milestone: M5
+    depends_on: [phase-m4-verification-repair]
+    description: >
+      Formalize the review step (checklist, decision record), add ZIP/Git-patch export with
+      checksums and an export-approval guard. Builds on the existing review->approve->PR
+      plumbing in server/src/services/orchestrator/index.ts:407-435.
+    status: planned
+
+  - order: 6
+    id: phase-m6-production-hardening
+    title: "M6 — Production Hardening"
+    milestone: M6
+    depends_on: [phase-m5-review-export]
+    description: >
+      Auth/roles, rate limiting, secret-scanning in CI, remaining items in
+      docs/11-security-threat-model.md:107-117.
+    status: planned
+
+cross_cutting:
+  # Not gated to a single phase above — can be picked up opportunistically.
+  - id: cc-plan-schema-validation
+    title: "Validate provider plan output against contracts/plan.schema.json"
+    related_milestone: M1
+    status: planned
+  - id: cc-provider-call-logging
+    title: "Write provider calls to the provider_calls table"
+    related_milestone: M1
+    status: planned
+  - id: cc-branch-strategy-doc-fix
+    title: "Resolve develop-vs-main branch strategy mismatch (CLAUDE.md, docs/04)"
+    related_milestone: null
+    status: needs-decision
+  - id: cc-remove-unused-deps
+    title: "Remove or justify unused Stripe/three frontend dependencies"
+    related_milestone: null
+    status: needs-decision
+  - id: cc-doc-drift-08-09-10
+    title: "Update docs/08, docs/09, docs/10 to match shipped architecture (or ADR the deltas)"
+    related_milestone: null
+    status: planned

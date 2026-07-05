@@ -1,0 +1,143 @@
+# Machine-readable risk register for Code-Gen-AI.
+# Canonical narrative version: docs/engineering/ENGINEERING_MASTER_PLAN.md (section 8).
+# Carries forward docs/14-milestones.md's risk register, plus risks confirmed by repo
+# evidence during the 2026-07-05 engineering baseline audit.
+
+schema_version: 1
+generated_by: "engineering-baseline (2026-07-05)"
+
+risks:
+  # ── Carried over from docs/14-milestones.md:83-90 ──
+  - id: RISK-1
+    title: "Invalid JSON plans"
+    source: "docs/14-milestones.md"
+    probability: medium
+    impact: high
+    mitigation: "Structured outputs, retries, schema repair"
+    status: open
+    repo_evidence: >
+      Confirmed still open: no code path validates the provider's plan output against
+      contracts/plan.schema.json (see server/src/services/orchestrator/index.ts).
+
+  - id: RISK-2
+    title: "Preview dependency mismatch"
+    source: "docs/14-milestones.md"
+    probability: medium
+    impact: medium
+    mitigation: "Dependency allowlist, WebContainers phase 2"
+    status: mitigated
+    repo_evidence: >
+      WebContainers phase 2 shipped (ADR-0006), superseding the original Sandpack-only plan.
+      Dependency allowlist for harvested components exists in docs/06-component-harvester.md
+      but is not yet enforced in code (see RISK-8).
+
+  - id: RISK-3
+    title: "License ambiguity"
+    source: "docs/14-milestones.md"
+    probability: medium
+    impact: high
+    mitigation: "Manifest license field, review"
+    status: open
+    repo_evidence: >
+      contracts/component-manifest.schema.json defines a license field, but nothing persists
+      manifests yet (M3.3 not started), so there is no license record for harvested components
+      today.
+
+  - id: RISK-4
+    title: "TFRS drift"
+    source: "docs/14-milestones.md"
+    probability: high
+    impact: medium
+    mitigation: "Design adapter and checklist"
+    status: partially_mitigated
+    repo_evidence: >
+      TFRS class adapter exists and is unit-tested
+      (server/src/services/harvester/tfrs-adapter.ts, tfrs-adapter.test.ts). No automated
+      design checklist / accessibility smoke test found (docs/15-gathering-results.md targets
+      an 85%+ accessibility smoke pass rate with no implementation evidence).
+
+  - id: RISK-5
+    title: "Lifecycle bypass"
+    source: "docs/14-milestones.md"
+    probability: medium
+    impact: high
+    mitigation: "AI rules and CI checks"
+    status: partially_mitigated
+    repo_evidence: >
+      AI rules exist and are thorough (CLAUDE.md, .cursor/rules, .github/copilot-instructions.md).
+      No CI checks were found enforcing them (no .github/workflows found in this repo at
+      baseline time) — mitigation is currently doc-only, not automated.
+
+  - id: RISK-6
+    title: "Scope creep into deployment"
+    source: "docs/14-milestones.md"
+    probability: medium
+    impact: high
+    mitigation: "Keep deployment out of MVP"
+    status: open
+    repo_evidence: >
+      Deployment tooling (Railway configs, Procfile, Caddyfile, nixpacks.toml) already exists
+      at both root and server/ — deployment is in scope in practice, which is fine for an
+      operating product but is a scope difference from the original "keep deployment out of
+      MVP" framing. Not necessarily a problem; flagged so it's an explicit decision rather than
+      silent drift.
+
+  # ── New risks confirmed during the 2026-07-05 baseline audit ──
+  - id: RISK-7
+    title: "QA/verification step is a non-functional placeholder"
+    source: "engineering-baseline-audit"
+    probability: high
+    impact: high
+    mitigation: "Implement M4 (real lint/build/typecheck/test execution + qa_runs persistence + repair loop)"
+    status: open
+    repo_evidence: >
+      server/src/services/orchestrator/index.ts:357-367 — the 'qa' phase only appends log
+      lines and contains an explicit TODO(M3) comment; qa_runs table has zero writers found
+      in server/src. Jobs can reach 'review' status with no real verification signal.
+
+  - id: RISK-8
+    title: "No enforcement of the component dependency allowlist/disallow list at build time"
+    source: "engineering-baseline-audit"
+    probability: medium
+    impact: medium
+    mitigation: "Add a dependency-check step to the adapt/manifest pipeline (M3.3/M4)"
+    status: open
+    repo_evidence: >
+      docs/06-component-harvester.md:118-145 defines allowed/review/disallowed dependency
+      lists, but server/src/services/harvester has no code that checks a component's
+      dependencies against these lists.
+
+  - id: RISK-9
+    title: "Documentation drift between docs/08, docs/09, docs/10 and shipped architecture"
+    source: "engineering-baseline-audit"
+    probability: high
+    impact: medium
+    mitigation: "Revise the three docs to match shipped architecture, or record deltas in a new ADR"
+    status: open
+    repo_evidence: >
+      See docs/engineering/ENGINEERING_MASTER_PLAN.md section 2.2 items 1-3 for full detail
+      (preview tech substitution, leaner data model, job-centric API vs. generation-resource API).
+
+  - id: RISK-10
+    title: "Pre-existing TypeScript errors block using typecheck as a merge gate"
+    source: "engineering-baseline-audit"
+    probability: high
+    impact: low
+    mitigation: "Triage and fix src/pages/Projects.jsx and src/pages/Settings.jsx forwardRef/prop typing errors"
+    status: open
+    repo_evidence: >
+      `npm run typecheck` at repo root produced 165 pre-existing errors, concentrated in
+      src/pages/Projects.jsx and src/pages/Settings.jsx, at baseline time (before any changes
+      in this task). ESLint (`npm run lint`) is clean, so this is tsc-specific.
+
+  - id: RISK-11
+    title: "Branch-strategy mismatch: docs say develop, repo only has main"
+    source: "engineering-baseline-audit"
+    probability: medium
+    impact: medium
+    mitigation: "Either create a develop branch or update CLAUDE.md/docs/04-repository-contracts.md to say main"
+    status: open
+    repo_evidence: >
+      `git branch -a` at baseline time showed only `main` and short-lived `claude/*` branches
+      on the remote — no `develop` branch exists, despite CLAUDE.md and
+      docs/04-repository-contracts.md:116 specifying a `develop -> feature/*` workflow.

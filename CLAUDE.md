@@ -1,5 +1,14 @@
 # Claude / Claude Code Instructions for Code-Gen-AI
 
+## Project status (canonical)
+
+Before starting work, read `docs/engineering/ENGINEERING_MASTER_PLAN.md` and the
+machine-readable state in `project/` (`roadmap.yaml`, `milestones.yaml`, `active-sprint.yaml`,
+`risks.yaml`, `backlog.yaml`). These are the canonical, evidence-based source for current
+status, the active sprint, and the next recommended task — not `docs/14-milestones.md` or
+`backlog/mvp-epics.md` alone, which describe the original target and may be ahead of or behind
+what is actually implemented.
+
 ## Lifecycle
 
 Before writing or changing code:
