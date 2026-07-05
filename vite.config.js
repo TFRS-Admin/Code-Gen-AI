@@ -11,4 +11,12 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  test: {
+    environment: 'jsdom',
+    setupFiles: ['./src/test/setup.js'],
+    css: false,
+    // The server/ package has its own node:test suite (run via `npm test`
+    // inside server/) — keep it out of the frontend Vitest run.
+    include: ['src/**/*.{test,spec}.{js,jsx,ts,tsx}'],
+  },
 })

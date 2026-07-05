@@ -8,12 +8,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Badge } from "@/components/ui/badge";
+import PreviewPanel from "@/components/dashboard/PreviewPanel";
+import FeedbackChat from "@/components/dashboard/FeedbackChat";
 import {
   CheckCircle2,
   Circle,
   XCircle,
   Loader2,
-  ExternalLink,
   GitPullRequest,
   Lock,
   GitBranch,
@@ -79,6 +80,24 @@ export default function Dashboard() {
   const pollRef = useRef(null);
   const logRef = useRef(null);
 
+  const [previewData, setPreviewData] = useState(null); // { previewUrl, status, lastUpdated }
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState(null);
+
+  const fetchPreview = useCallback(async (jobId) => {
+    if (!jobId) return;
+    setPreviewLoading(true);
+    setPreviewError(null);
+    try {
+      const data = await BlairAPI.getPreview(jobId);
+      setPreviewData(data);
+    } catch (err) {
+      setPreviewError(err.message);
+    } finally {
+      setPreviewLoading(false);
+    }
+  }, []);
+
   const clearPoll = () => {
     if (pollRef.current) {
       clearInterval(pollRef.current);
@@ -86,24 +105,30 @@ export default function Dashboard() {
     }
   };
 
-  const pollJob = useCallback((id) => {
-    clearPoll();
-    pollRef.current = setInterval(async () => {
-      try {
-        const job = await BlairAPI.getJob(id);
-        setActiveJob(job);
-        if (TERMINAL_STATUSES.includes(job.status)) {
+  const pollJob = useCallback(
+    (id) => {
+      clearPoll();
+      pollRef.current = setInterval(async () => {
+        try {
+          const job = await BlairAPI.getJob(id);
+          setActiveJob(job);
+          fetchPreview(id);
+          if (TERMINAL_STATUSES.includes(job.status)) {
+            clearPoll();
+          }
+        } catch {
           clearPoll();
         }
-      } catch {
-        clearPoll();
-      }
-    }, 2000);
-  }, []);
+      }, 2000);
+    },
+    [fetchPreview]
+  );
 
   useEffect(() => {
     if (isNewJob) {
       setActiveJob(null);
+      setPreviewData(null);
+      setPreviewError(null);
       return;
     }
     // Load the most recent job, if any, so Dashboard isn't blank on load.
@@ -112,6 +137,7 @@ export default function Dashboard() {
         const jobs = await BlairAPI.listJobs();
         if (jobs && jobs.length > 0) {
           setActiveJob(jobs[0]);
+          fetchPreview(jobs[0].id);
           if (!TERMINAL_STATUSES.includes(jobs[0].status)) {
             pollJob(jobs[0].id);
           }
@@ -200,6 +226,8 @@ export default function Dashboard() {
       });
       const job = await BlairAPI.getJob(id);
       setActiveJob(job);
+      setPreviewData(null);
+      fetchPreview(id);
       pollJob(id);
     } catch (err) {
       setSubmitError(err.message);
@@ -208,8 +236,8 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="p-8 grid lg:grid-cols-2 gap-8">
-      {/* Consultation Panel */}
+    <div className="p-8 grid grid-cols-1 lg:grid-cols-2 gap-8">
+      {/* Left column: submission, phase timeline, and in-Dashboard feedback chat */}
       <div className="space-y-6">
         <div>
           <h1 className="text-2xl font-mono font-bold uppercase tracking-wide text-tfrs-text">
@@ -373,10 +401,8 @@ export default function Dashboard() {
             )}
           </Button>
         </div>
-      </div>
 
-      {/* Status Panel */}
-      <div className="space-y-6">
+        {/* Status Panel */}
         <div>
           <h1 className="text-2xl font-mono font-bold uppercase tracking-wide text-tfrs-text">
             Job Status
@@ -434,14 +460,6 @@ export default function Dashboard() {
             </div>
 
             <div className="flex gap-3">
-              {activeJob.preview_url && (
-                <a href={activeJob.preview_url} target="_blank" rel="noreferrer" className="flex-1">
-                  <Button variant="outline" className="w-full border-tfrs-border text-tfrs-text font-mono uppercase rounded-none">
-                    <ExternalLink className="w-4 h-4 mr-2" />
-                    Preview
-                  </Button>
-                </a>
-              )}
               {activeJob.pr_url && (
                 <a href={activeJob.pr_url} target="_blank" rel="noreferrer" className="flex-1">
                   <Button variant="outline" className="w-full border-tfrs-border text-tfrs-text font-mono uppercase rounded-none">
@@ -453,6 +471,28 @@ export default function Dashboard() {
             </div>
           </div>
         )}
+
+        <FeedbackChat provider={provider} />
+      </div>
+
+      {/* Right column: live preview of the generated app */}
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-mono font-bold uppercase tracking-wide text-tfrs-text">
+            Live Preview
+          </h1>
+          <p className="text-sm text-tfrs-muted mt-1">Real-time rendering of the generated app as Blair builds it.</p>
+        </div>
+
+        <PreviewPanel
+          hasJob={!!activeJob}
+          previewUrl={previewData?.previewUrl}
+          status={previewData?.status}
+          lastUpdated={previewData?.lastUpdated}
+          loading={previewLoading}
+          error={previewError}
+          onRefresh={() => activeJob && fetchPreview(activeJob.id)}
+        />
       </div>
     </div>
   );

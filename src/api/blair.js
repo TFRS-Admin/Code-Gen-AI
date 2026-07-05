@@ -41,6 +41,12 @@ export const BlairAPI = {
     return body.data;
   },
 
+  // Fetches the live preview status for a job: { previewUrl, status, lastUpdated }.
+  async getPreview(id) {
+    const body = await request(`/api/jobs/${id}/preview`);
+    return body.data;
+  },
+
   // Lists recent jobs.
   async listJobs() {
     const body = await request('/api/jobs');
