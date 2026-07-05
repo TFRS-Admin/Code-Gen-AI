@@ -39,7 +39,7 @@ export default function PreviewPanel({
   };
 
   return (
-    <div className="bg-tfrs-surface border border-tfrs-border flex flex-col h-[420px] lg:h-[640px]">
+    <div className="bg-tfrs-surface border border-tfrs-border flex flex-col h-full min-h-[320px]">
       <div className="flex items-center justify-between px-4 py-3 border-b border-tfrs-border shrink-0">
         <div className="flex items-center gap-2 min-w-0">
           <MonitorPlay className="w-4 h-4 text-tfrs-gold shrink-0" />

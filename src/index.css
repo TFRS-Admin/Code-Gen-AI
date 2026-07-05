@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* TFRS Tactical Command Deck — design tokens */
+/* TFRS Tactical Command Deck — design tokens (Assistant/Projects/Settings) */
 :root {
   --tfrs-bg: #0a0e1a;
   --tfrs-red: #c41e3a;
@@ -11,6 +11,21 @@
   --tfrs-border: #1f2937;
   --tfrs-text: #f9fafb;
   --tfrs-muted: #6b7280;
+}
+
+/* Blair Dashboard — Base44-pattern design tokens (chat-first light theme) */
+:root {
+  --blair-bg: #ffffff;
+  --blair-sidebar-bg: #f5f5f5;
+  --blair-surface: #ffffff;
+  --blair-primary: #ff6b35;
+  --blair-primary-hover: #e85a2a;
+  --blair-primary-soft: #fff1ea;
+  --blair-text: #333333;
+  --blair-muted: #6b7280;
+  --blair-border: #eeeeee;
+  --blair-font-sans: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --blair-font-mono: Monaco, "Courier New", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 body {
@@ -171,5 +186,63 @@ button:focus-visible {
   }
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+/* Blair Dashboard — chat, code block, and layout-transition utilities */
+@layer components {
+  .blair-chat-bubble-user {
+    @apply bg-[--blair-primary] text-white rounded-2xl rounded-br-sm;
+  }
+  .blair-chat-bubble-ai {
+    @apply bg-[--blair-sidebar-bg] text-[--blair-text] rounded-2xl rounded-bl-sm;
+  }
+  .blair-code-block {
+    font-family: var(--blair-font-mono);
+    background-color: #1e1e1e;
+    color: #e5e5e5;
+  }
+  .blair-prose {
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  .blair-prose p {
+    margin: 0 0 0.5em 0;
+  }
+  .blair-prose p:last-child {
+    margin-bottom: 0;
+  }
+  .blair-prose ul,
+  .blair-prose ol {
+    margin: 0 0 0.5em 1.25em;
+  }
+  .blair-prose pre {
+    margin: 0.5em 0;
+    border-radius: 0.5rem;
+    overflow-x: auto;
+  }
+  .blair-prose code {
+    font-family: var(--blair-font-mono);
+    font-size: 13px;
+  }
+  .blair-prose :not(pre) > code {
+    background-color: var(--blair-primary-soft);
+    color: var(--blair-primary-hover);
+    padding: 0.1em 0.35em;
+    border-radius: 0.25rem;
+  }
+}
+
+@layer utilities {
+  .blair-sidebar-transition {
+    transition: width 200ms ease-in-out;
+  }
+  .blair-scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .blair-scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: var(--blair-border);
+    border-radius: 9999px;
   }
 }

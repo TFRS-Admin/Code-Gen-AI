@@ -3,6 +3,14 @@ module.exports = {
     darkMode: ["class"],
     content: ["./index.html", "./src/**/*.{ts,tsx,js,jsx}"],
   theme: {
+  	screens: {
+  		sm: '640px',
+  		md: '768px',
+  		lg: '1024px',
+  		xl: '1280px',
+  		'2xl': '1536px',
+  		'blair-desktop': '1200px'
+  	},
   	extend: {
   		borderRadius: {
   			lg: 'var(--radius)',
@@ -68,6 +76,17 @@ module.exports = {
   				border: 'var(--tfrs-border)',
   				text: 'var(--tfrs-text)',
   				muted: 'var(--tfrs-muted)'
+  			},
+  			blair: {
+  				bg: 'var(--blair-bg)',
+  				sidebar: 'var(--blair-sidebar-bg)',
+  				surface: 'var(--blair-surface)',
+  				primary: 'var(--blair-primary)',
+  				'primary-hover': 'var(--blair-primary-hover)',
+  				'primary-soft': 'var(--blair-primary-soft)',
+  				text: 'var(--blair-text)',
+  				muted: 'var(--blair-muted)',
+  				border: 'var(--blair-border)'
   			}
   		},
   		keyframes: {
