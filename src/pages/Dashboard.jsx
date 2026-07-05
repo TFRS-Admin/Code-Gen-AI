@@ -9,6 +9,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Badge } from "@/components/ui/badge";
 import PreviewPanel from "@/components/dashboard/PreviewPanel";
+import WebContainersPreview from "@/components/dashboard/WebContainersPreview";
 import FeedbackChat from "@/components/dashboard/FeedbackChat";
 import {
   CheckCircle2,
@@ -83,6 +84,13 @@ export default function Dashboard() {
   const [previewData, setPreviewData] = useState(null); // { previewUrl, status, lastUpdated }
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState(null);
+
+  // "repo": instant WebContainers preview of the selected repo/branch.
+  // "job": Blair's job-specific Railway preview. Both stay mounted; this
+  // just controls which one is visible so switching tabs doesn't restart
+  // the WebContainers boot.
+  const [previewTab, setPreviewTab] = useState("repo");
+  const [repoOwner, repoName] = selectedRepo ? selectedRepo.full_name.split("/") : [null, null];
 
   const fetchPreview = useCallback(async (jobId) => {
     if (!jobId) return;
@@ -184,6 +192,7 @@ export default function Dashboard() {
       return;
     }
     let cancelled = false;
+    setPreviewTab("repo"); // jump straight to the instant live preview for the newly selected repo
     setSelectedBranch("");
     setBranches([]);
     setBranchesError(null);
@@ -227,6 +236,7 @@ export default function Dashboard() {
       const job = await BlairAPI.getJob(id);
       setActiveJob(job);
       setPreviewData(null);
+      setPreviewTab("job");
       fetchPreview(id);
       pollJob(id);
     } catch (err) {
@@ -475,24 +485,55 @@ export default function Dashboard() {
         <FeedbackChat provider={provider} />
       </div>
 
-      {/* Right column: live preview of the generated app */}
+      {/* Right column: instant repo preview + job-specific preview, toggled by tab */}
       <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-mono font-bold uppercase tracking-wide text-tfrs-text">
-            Live Preview
-          </h1>
-          <p className="text-sm text-tfrs-muted mt-1">Real-time rendering of the generated app as Blair builds it.</p>
+        <div className="flex items-end justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-mono font-bold uppercase tracking-wide text-tfrs-text">
+              Live Preview
+            </h1>
+            <p className="text-sm text-tfrs-muted mt-1">
+              {previewTab === "repo"
+                ? "Instant, in-browser preview of the selected repo — no deploy required."
+                : "Real-time rendering of the generated app as Blair builds it."}
+            </p>
+          </div>
+          <div className="flex border border-tfrs-border shrink-0">
+            <button
+              type="button"
+              onClick={() => setPreviewTab("repo")}
+              className={`px-3 py-2 font-mono uppercase text-xs ${
+                previewTab === "repo" ? "bg-tfrs-red text-tfrs-text" : "text-tfrs-muted hover:text-tfrs-text"
+              }`}
+            >
+              Live Repo
+            </button>
+            <button
+              type="button"
+              onClick={() => setPreviewTab("job")}
+              className={`px-3 py-2 font-mono uppercase text-xs border-l border-tfrs-border ${
+                previewTab === "job" ? "bg-tfrs-red text-tfrs-text" : "text-tfrs-muted hover:text-tfrs-text"
+              }`}
+            >
+              Job Preview
+            </button>
+          </div>
         </div>
 
-        <PreviewPanel
-          hasJob={!!activeJob}
-          previewUrl={previewData?.previewUrl}
-          status={previewData?.status}
-          lastUpdated={previewData?.lastUpdated}
-          loading={previewLoading}
-          error={previewError}
-          onRefresh={() => activeJob && fetchPreview(activeJob.id)}
-        />
+        <div className={previewTab === "repo" ? "" : "hidden"}>
+          <WebContainersPreview owner={repoOwner} repo={repoName} branch={selectedBranch} />
+        </div>
+        <div className={previewTab === "job" ? "" : "hidden"}>
+          <PreviewPanel
+            hasJob={!!activeJob}
+            previewUrl={previewData?.previewUrl}
+            status={previewData?.status}
+            lastUpdated={previewData?.lastUpdated}
+            loading={previewLoading}
+            error={previewError}
+            onRefresh={() => activeJob && fetchPreview(activeJob.id)}
+          />
+        </div>
       </div>
     </div>
   );

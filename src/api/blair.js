@@ -78,6 +78,15 @@ export const BlairAPI = {
     const body = await request(`/api/github/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/branches`);
     return body.data;
   },
+
+  // Fetches the full file tree + contents of a repo/branch, for booting a
+  // WebContainers instant preview. Returns { files, totalTreeEntries, includedFiles, truncated }.
+  async getRepoFiles(owner, repo, branch) {
+    const body = await request(
+      `/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/files?branch=${encodeURIComponent(branch)}`
+    );
+    return body.data;
+  },
 };
 
 export default BlairAPI;

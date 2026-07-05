@@ -10,7 +10,7 @@
     "migrate": "node dist/db/migrate.js",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
-    "test": "tsx --test src/config/index.test.ts src/routes/github.test.ts src/routes/jobs.test.ts src/services/orchestrator/index.test.ts"
+    "test": "tsx --test src/config/index.test.ts src/routes/github.test.ts src/routes/repos.test.ts src/routes/jobs.test.ts src/services/orchestrator/index.test.ts"
   },
   "dependencies": {
     "express": "^4.18.2",
