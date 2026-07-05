@@ -7,6 +7,7 @@ import generationsRouter from './routes/generations';
 import jobsRouter from './routes/jobs';
 import githubRouter from './routes/github';
 import reposRouter from './routes/repos';
+import registryRouter from './routes/registry';
 
 logGithubTokenStatus();
 
@@ -23,6 +24,7 @@ app.use('/api/generations', generationsRouter);
 app.use('/api/jobs', jobsRouter);
 app.use('/api/github', githubRouter);
 app.use('/api/repos', reposRouter);
+app.use('/api/registry', registryRouter);
 
 // Error handling (must be last)
 app.use(notFound);
