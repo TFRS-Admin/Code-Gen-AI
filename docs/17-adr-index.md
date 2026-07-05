@@ -8,6 +8,7 @@
 | ADR-0004 | Server-side provider gateway | Accepted |
 | ADR-0005 | Postgres-compatible persistence | Accepted |
 | ADR-0006 | WebContainers instant repo preview | Accepted |
+| ADR-0007 | Manifest persistence data model | Proposed |
 
 ## ADR template
 
