@@ -7,6 +7,11 @@
 builder = "nixpacks"
 
 [deploy]
-startCommand = "npm run start"
+# Migrations are idempotent (CREATE TABLE IF NOT EXISTS / ADD COLUMN IF NOT
+# EXISTS), so running them on every deploy is safe. Without this, a fresh or
+# reset DATABASE_URL has no `jobs` table and every /api/jobs request 500s
+# with "relation \"jobs\" does not exist" until someone runs `npm run migrate`
+# by hand.
+startCommand = "npm run migrate && npm run start"
 healthcheckPath = "/api/health"
 healthcheckTimeout = 30
