@@ -64,4 +64,12 @@ export const config = {
   cors: {
     origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
   },
+  // RAILWAY_PROJECT_ID is the Railway project that hosts feature-branch
+  // preview deploys. Railway's built-in preview environments publish each
+  // branch at https://<branch-name>-<project-id>.railway.app — the
+  // orchestrator (services/orchestrator) derives that URL from this ID and
+  // the job's feature branch name once the branch is created.
+  railway: {
+    projectId: process.env.RAILWAY_PROJECT_ID || '',
+  },
 };
