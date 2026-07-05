@@ -194,8 +194,13 @@ epics:
       - id: TICKET-032
         title: "Implement verification runs"
         status: todo
-        evidence: []
-        note: "qa_runs table exists (001_initial.sql:44-56) but the orchestrator's QA step (index.ts:357-367) is a hard-coded placeholder that never writes to it."
+        evidence: ["docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md"]
+        note: >
+          qa_runs table exists (001_initial.sql:44-56) but the orchestrator's QA step
+          (index.ts:357-367) is a hard-coded placeholder that never writes to it. Kickoff plan
+          written (2026-07-05, feature/m4-verification-engine-plan, no product code changed):
+          4 incremental slices, starting with a sandbox-materialization spike since no local
+          checkout/execution capability exists today. Still status: todo — planning only.
       - id: TICKET-033
         title: "Add review decisions"
         status: todo
