@@ -2,5 +2,15 @@
 
 root * dist
 encode gzip
+
+# WebContainers (instant repo preview) needs SharedArrayBuffer, which
+# requires a cross-origin-isolated page. "credentialless" (vs. "require-corp")
+# avoids breaking other cross-origin embeds that don't set CORP headers.
+# Mirrored in ./vite.config.js for local dev/preview.
+header {
+	Cross-Origin-Embedder-Policy "credentialless"
+	Cross-Origin-Opener-Policy "same-origin"
+}
+
 try_files {path} /index.html
 file_server

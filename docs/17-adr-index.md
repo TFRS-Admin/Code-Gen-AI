@@ -7,6 +7,7 @@
 | ADR-0003 | Radix/Shadcn-style component harvesting | Accepted |
 | ADR-0004 | Server-side provider gateway | Accepted |
 | ADR-0005 | Postgres-compatible persistence | Accepted |
+| ADR-0006 | WebContainers instant repo preview | Accepted |
 
 ## ADR template
 

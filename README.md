@@ -28,6 +28,38 @@ We provide the **runtime infrastructure** that sits between a model (like Claude
 - **Preview:** Vite dev server per branch, exposed through a reverse proxy
 - **Deployment:** Railway (Handles frontend, backend, Postgres, and background jobs natively)
 
+## WebContainers instant repo preview
+
+Selecting a repo on the Dashboard boots an in-browser [WebContainers](https://webcontainers.io)
+runtime (`@webcontainer/api`) that mounts the repo's files and runs its own
+`npm install && npm run dev|start` — no server-side deploy involved. This is
+separate from (and coexists with) the job-based `PreviewPanel`, which shows
+Blair's Railway branch deploy once a job is submitted. See
+`adr/0006-webcontainers-instant-preview.md` and `docs/08-live-preview-runtime.md`
+for the full design.
+
+Setup notes:
+
+- **No API key required.** `@webcontainer/api` runs entirely client-side; it
+  doesn't use `OPENAI_API_KEY`/`ANTHROPIC_API_KEY` or any other provider
+  credential (those stay server-side per this repo's provider-gateway rule).
+- **Cross-origin isolation is required.** WebContainers needs
+  `SharedArrayBuffer`, which browsers only expose on cross-origin-isolated
+  pages. `Cross-Origin-Embedder-Policy: credentialless` and
+  `Cross-Origin-Opener-Policy: same-origin` are set in `vite.config.js`
+  (dev/`vite preview`) and `Caddyfile` (production). If you front this app
+  with a different host/CDN, mirror those two headers there too.
+- **Outbound network access is required** to `stackblitz.com` and
+  `*.webcontainer-api.io` at runtime (the browser fetches the WebContainers
+  boot payload and hosts the live preview iframe there). Environments with
+  restrictive egress allowlists will need those domains added; without them,
+  the preview panel shows a clear error instead of hanging.
+- **Browser support:** current Chromium-, Firefox-, or Safari-based browsers.
+  Older browsers without cross-origin isolation support will show the
+  "isn't cross-origin isolated" error state.
+- A repo needs a `package.json` with a `dev` or `start` script to preview;
+  repos without one (or without a working Node toolchain) show a clear error.
+
 ## Reading order for Contractors/AI
 
 1. `docs/00-documentation-map.md`

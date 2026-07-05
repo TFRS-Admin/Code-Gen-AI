@@ -118,6 +118,134 @@ export async function getFileContent(owner: string, repo: string, branch: string
   }
 }
 
+// ─── Full file tree + contents (for WebContainers) ──────────────────────
+
+// Directories that never help boot a WebContainers dev server and can be
+// large (dependencies, build output, VCS/editor metadata).
+const EXCLUDED_DIR_NAMES = new Set([
+  'node_modules', '.git', '.github', '.vscode', '.idea',
+  'dist', 'build', '.next', '.nuxt', 'coverage', '.cache', 'out',
+  'vendor', '.turbo', '.vercel', '.netlify', '.parcel-cache', '.svelte-kit',
+]);
+
+// Filenames that commonly carry secrets/tokens — never sent to the browser,
+// mirroring the "never mount .env values" preview sandbox rule.
+const EXCLUDED_FILE_NAMES = new Set(['.npmrc', '.yarnrc', '.yarnrc.yml', '.netrc', '.git-credentials']);
+
+// Binary formats can't be represented as UTF-8 text content, so they're
+// excluded rather than corrupted; WebContainers can still boot a dev server
+// without them for the purposes of an instant preview.
+const BINARY_EXTENSIONS = new Set([
+  'png', 'jpg', 'jpeg', 'gif', 'ico', 'webp', 'bmp', 'avif',
+  'woff', 'woff2', 'ttf', 'eot', 'otf',
+  'pdf', 'zip', 'tar', 'gz', 'tgz', '7z', 'rar',
+  'mp4', 'mp3', 'wav', 'mov', 'avi', 'webm', 'ogg', 'flac',
+  'exe', 'dll', 'so', 'dylib', 'bin', 'wasm', 'jar', 'class',
+]);
+
+const LANGUAGE_BY_EXTENSION: Record<string, string> = {
+  js: 'javascript', jsx: 'javascript', mjs: 'javascript', cjs: 'javascript',
+  ts: 'typescript', tsx: 'typescript',
+  json: 'json', jsonc: 'json',
+  css: 'css', scss: 'css', less: 'css',
+  html: 'html', htm: 'html',
+  md: 'markdown', mdx: 'markdown',
+  yml: 'yaml', yaml: 'yaml',
+  sh: 'shell', bash: 'shell',
+  py: 'python', rb: 'ruby', go: 'go', rs: 'rust', java: 'java',
+  c: 'c', h: 'c', cpp: 'cpp', hpp: 'cpp',
+  php: 'php', sql: 'sql', graphql: 'graphql', gql: 'graphql',
+  vue: 'vue', svelte: 'svelte', xml: 'xml', svg: 'xml',
+  toml: 'toml', txt: 'plaintext',
+};
+
+// Bounds GitHub API usage (one Git Blob request per included file) and the
+// size of the response sent to the browser.
+const MAX_FILES = 400;
+const MAX_FILE_BYTES = 300 * 1024;
+const BLOB_FETCH_CONCURRENCY = 8;
+
+function fileExtension(path: string): string {
+  const basename = path.split('/').pop() || '';
+  const dotIndex = basename.lastIndexOf('.');
+  return dotIndex > 0 ? basename.slice(dotIndex + 1).toLowerCase() : '';
+}
+
+function isExcludedPath(path: string): boolean {
+  const segments = path.split('/');
+  const basename = segments[segments.length - 1];
+  if (segments.slice(0, -1).some((segment) => EXCLUDED_DIR_NAMES.has(segment))) return true;
+  if (EXCLUDED_FILE_NAMES.has(basename)) return true;
+  if (basename === '.env' || basename.startsWith('.env.')) return true;
+  return false;
+}
+
+function detectLanguage(path: string): string {
+  return LANGUAGE_BY_EXTENSION[fileExtension(path)] || 'plaintext';
+}
+
+export interface RepoFileEntry {
+  content: string;
+  language: string;
+}
+
+export interface RepoFilesResult {
+  files: Record<string, RepoFileEntry>;
+  totalTreeEntries: number;
+  includedFiles: number;
+  truncated: boolean;
+}
+
+/**
+ * Fetches the full text-file tree + contents of a branch, for mounting into
+ * a WebContainers instance. Uses the Git Trees API (recursive) to list every
+ * blob in one call, then fetches blob content in small concurrent batches —
+ * far fewer round trips than walking directories with `repos.getContent`.
+ *
+ * Excludes dependency/build/VCS directories, secret-bearing dotfiles, and
+ * binary files (which can't be represented as UTF-8 text), and caps the
+ * number and size of files fetched to bound GitHub API usage.
+ */
+export async function getRepoFiles(owner: string, repo: string, branch: string): Promise<RepoFilesResult> {
+  try {
+    const octokit = await getClient();
+    const branchSha = await getBranchSha(owner, repo, branch);
+    const treeRes = await octokit.rest.git.getTree({ owner, repo, tree_sha: branchSha, recursive: '1' });
+
+    const allBlobs: any[] = (treeRes.data.tree || []).filter((entry: any) => entry.type === 'blob');
+    const candidates = allBlobs.filter(
+      (entry: any) => !isExcludedPath(entry.path) && !BINARY_EXTENSIONS.has(fileExtension(entry.path))
+    );
+    const truncated = Boolean(treeRes.data.truncated) || candidates.length > MAX_FILES;
+    const selected = candidates.slice(0, MAX_FILES);
+
+    const files: Record<string, RepoFileEntry> = {};
+    for (let i = 0; i < selected.length; i += BLOB_FETCH_CONCURRENCY) {
+      const batch = selected.slice(i, i + BLOB_FETCH_CONCURRENCY);
+      const results = await Promise.all(
+        batch.map(async (entry: any) => {
+          if (typeof entry.size === 'number' && entry.size > MAX_FILE_BYTES) return null;
+          const blob = await octokit.rest.git.getBlob({ owner, repo, file_sha: entry.sha });
+          if (blob.data.encoding !== 'base64') return null;
+          return { path: entry.path as string, content: Buffer.from(blob.data.content, 'base64').toString('utf8') };
+        })
+      );
+      for (const result of results) {
+        if (result) files[result.path] = { content: result.content, language: detectLanguage(result.path) };
+      }
+    }
+
+    return {
+      files,
+      totalTreeEntries: allBlobs.length,
+      includedFiles: Object.keys(files).length,
+      truncated,
+    };
+  } catch (err: any) {
+    throw wrapError(`getRepoFiles(${owner}/${repo}#${branch})`, err);
+  }
+}
+
 /** Creates a new branch pointing at the given commit SHA. */
 export async function createBranch(owner: string, repo: string, branch: string, fromSha: string): Promise<void> {
   try {

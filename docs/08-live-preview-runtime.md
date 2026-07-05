@@ -4,6 +4,20 @@
 
 The live preview replaces the static iframe with a hot-reloading React preview that can execute generated UI in the browser before export.
 
+## Two preview surfaces
+
+As of ADR-0006, the Dashboard has two distinct, coexisting preview surfaces:
+
+| Surface | Component | Triggered by | Runtime |
+|---|---|---|---|
+| Instant repo preview | `WebContainersPreview` | Selecting a repo + branch | `@webcontainer/api`, runs the repo's own `npm install && npm run dev\|start` in-browser |
+| Generation/job preview | `PreviewPanel` | Submitting a job to Blair | Railway branch deploy (job-specific), iframe to the deployed URL |
+
+The instant repo preview requires no job and no backend deploy — it lets a
+user browse and interact with the exact repo state before asking Blair to
+change anything. See ADR-0006 for the full decision record and
+`GET /api/repos/:owner/:repo/files` for the backend contract that feeds it.
+
 ## MVP recommendation
 
 Use **Sandpack** for MVP.
