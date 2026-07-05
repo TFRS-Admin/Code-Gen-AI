@@ -1,0 +1,61 @@
+# Machine-readable active-sprint snapshot for Code-Gen-AI.
+# Canonical narrative version: docs/engineering/ENGINEERING_MASTER_PLAN.md (section 6).
+#
+# No sprint cadence, sprint numbering, or start/end dates were found anywhere in this repo
+# (no sprint board, no dated backlog entries). The `window` fields below are marked
+# needs-audit rather than invented — populate them from the team's actual tracker.
+
+schema_version: 1
+generated_by: "engineering-baseline (2026-07-05)"
+
+sprint:
+  id: needs-audit
+  window:
+    start: needs-audit
+    end: needs-audit
+  goal: >
+    Close out M3.2 Component Adaptation and begin M3.3 Manifest Persistence.
+  milestones_in_focus: [M3.2, M3.3]
+
+  items:
+    - id: SPR-1
+      title: "Audit ComponentHarvester.jsx wiring to /api/registry and /api/adapt"
+      milestone: M3.2
+      status: todo
+      evidence_so_far: ["src/pages/ComponentHarvester.jsx", "src/pages/ComponentHarvester.test.jsx"]
+      note: "This baseline confirmed the page and a test file exist but did not trace live wiring end-to-end."
+
+    - id: SPR-2
+      title: "Decide candidate-scoring scope for M3.2 vs. deferred"
+      milestone: M3.2
+      status: todo
+      reference: "docs/06-component-harvester.md:49-65"
+
+    - id: SPR-3
+      title: "Answer open question: data-model target for M3.3+ (lean jobs/plans schema vs. full ERD in docs/10-data-model.md)"
+      milestone: M3.3
+      status: todo
+      blocks: [SPR-4]
+
+    - id: SPR-4
+      title: "Design and land manifest persistence table(s)"
+      milestone: M3.3
+      status: todo
+      blocked_by: [SPR-3]
+      reference: "contracts/component-manifest.schema.json"
+
+    - id: SPR-5
+      title: "Implement manifest-generation service and wire into /api/adapt"
+      milestone: M3.3
+      status: todo
+      blocked_by: [SPR-4]
+
+    - id: SPR-6
+      title: "Add tests for manifest generation/persistence mirroring adapt.test.ts / registry.test.ts patterns"
+      milestone: M3.3
+      status: todo
+      blocked_by: [SPR-5]
+
+  out_of_sprint_but_flagged:
+    - "M4 QA placeholder replacement (server/src/services/orchestrator/index.ts:357-367) — next sprint after M3.3."
+    - "Plan-schema validation and provider_calls logging — cross-cutting, not scheduled to a milestone."

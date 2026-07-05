@@ -1,0 +1,188 @@
+# Machine-readable milestone state for Code-Gen-AI.
+# Canonical narrative version: docs/engineering/ENGINEERING_MASTER_PLAN.md (section 3).
+# Status values: complete | in_progress | next | planned | unknown | needs-audit
+# Every non-"unknown" status must cite evidence (file paths, optionally line numbers).
+
+schema_version: 1
+generated_by: "engineering-baseline (2026-07-05)"
+source_of_truth: "docs/14-milestones.md"
+
+milestones:
+  - id: M0
+    name: Documentation Baseline
+    status: complete
+    owner: Architect
+    exit_criteria:
+      - criterion: "Docs committed"
+        met: true
+        evidence: ["docs/ (18 files)"]
+      - criterion: "AI rules committed"
+        met: true
+        evidence: ["CLAUDE.md", ".cursor/rules/blair-agent-lifecycle.mdc", ".github/copilot-instructions.md", "prompts/blair-system-prompt.md"]
+      - criterion: "Schemas committed"
+        met: true
+        evidence: ["contracts/plan.schema.json", "contracts/generation-request.schema.json", "contracts/component-manifest.schema.json", "contracts/openapi.yaml"]
+      - criterion: "ADRs committed"
+        met: true
+        evidence: ["adr/0001-plan-first-generation.md", "adr/0002-preview-runtime.md", "adr/0003-component-harvesting.md", "adr/0004-server-side-provider-gateway.md", "adr/0005-postgres-compatible-persistence.md", "adr/0006-webcontainers-instant-preview.md"]
+      - criterion: "Backlog created"
+        met: true
+        evidence: ["backlog/mvp-epics.md"]
+    notes: "No gaps found."
+
+  - id: M1
+    name: Plan-First API
+    status: complete
+    owner: Backend
+    exit_criteria:
+      - criterion: "Prompt creates persisted request"
+        met: true
+        evidence: ["server/src/routes/generations.ts:17-28", "server/src/db/migrations/001_initial.sql:11-26"]
+      - criterion: "Provider/mock returns valid JSON plan"
+        met: true
+        evidence: ["server/src/services/orchestrator/index.ts:242-265", "server/src/services/providers/index.ts"]
+      - criterion: "Invalid plan rejected"
+        met: false
+        evidence: []
+        note: "No schema validation of provider plan output found against contracts/plan.schema.json. Functional gap, not blocking (mock/real providers currently return usable JSON in practice), but the exit criterion as written is not enforced."
+      - criterion: "Audit events created"
+        met: true
+        evidence: ["server/src/services/audit/index.ts", "server/src/services/orchestrator/index.ts (logEvent calls)"]
+    notes: "Marked complete per baseline task instructions; one exit criterion (invalid-plan rejection) has no enforcement evidence and is tracked as technical debt, not re-opened as incomplete."
+
+  - id: M2
+    name: Live Preview
+    status: complete
+    owner: Frontend
+    exit_criteria:
+      - criterion: "Generated React page renders"
+        met: true
+        evidence: ["adr/0006-webcontainers-instant-preview.md", "server/src/services/orchestrator/index.ts:369-390"]
+      - criterion: "Build/runtime errors visible"
+        met: true
+        evidence: ["server/src/routes/jobs.ts:10-28 (derivePreviewStatus: building/ready/error)"]
+      - criterion: "Preview status persists"
+        met: true
+        evidence: ["server/src/db/migrations/003_preview_ready_at.sql"]
+      - criterion: "No secrets in preview bundle"
+        met: unknown
+        evidence: []
+        note: "No automated secret-scan of the preview bundle found; not verified either way."
+    notes: "Implemented via WebContainers (client-side instant preview) + Railway branch deploy (job preview), per ADR-0006 — NOT via Sandpack as originally specified in ADR-0002/docs/08-live-preview-runtime.md. This substitution should be reflected in docs/08 (see EMP section 2.2.1)."
+
+  - id: M3.1
+    name: "Harvester — Registry"
+    status: complete
+    owner: Full-stack
+    exit_criteria:
+      - criterion: "Registry adapters implemented (internal + Shadcn)"
+        met: true
+        evidence: ["server/src/services/harvester/adapters/internal.ts", "server/src/services/harvester/adapters/shadcn.ts", "server/src/services/harvester/registry.ts"]
+      - criterion: "Registry persisted"
+        met: true
+        evidence: ["server/src/db/migrations/004_registry_components.sql"]
+      - criterion: "Registry API exposed"
+        met: true
+        evidence: ["server/src/routes/registry.ts"]
+      - criterion: "Tests passing"
+        met: true
+        evidence: ["server/src/services/harvester/registry.test.ts", "server/src/routes/registry.test.ts"]
+    notes: "Confirmed by full test run at baseline time (61/61 server tests passing, see project verification log referenced in EMP section 9)."
+
+  - id: M3.2
+    name: "Harvester — Component Adaptation"
+    status: in_progress
+    owner: Full-stack
+    exit_criteria:
+      - criterion: "TFRS class adaptation implemented"
+        met: true
+        evidence: ["server/src/services/harvester/tfrs-adapter.ts"]
+      - criterion: "Adaptation API exposed"
+        met: true
+        evidence: ["server/src/routes/adapt.ts"]
+      - criterion: "Tests passing"
+        met: true
+        evidence: ["server/src/services/harvester/tfrs-adapter.test.ts", "server/src/routes/adapt.test.ts"]
+      - criterion: "Candidate scoring implemented"
+        met: false
+        evidence: []
+        note: "docs/06-component-harvester.md:49-65 specifies a weighted 0-100 scoring model; no scoring code found."
+      - criterion: "Harvester UI wired end-to-end"
+        met: needs-audit
+        evidence: ["src/pages/ComponentHarvester.jsx", "src/pages/ComponentHarvester.test.jsx"]
+        note: "Page and a test file exist; this baseline did not trace the UI's actual calls against /api/registry and /api/adapt to confirm live wiring vs. static/mock content."
+    notes: "Matches the task brief's assumed state of 'in progress'."
+
+  - id: M3.3
+    name: "Harvester — Manifest Persistence"
+    status: next
+    owner: Full-stack
+    exit_criteria:
+      - criterion: "Manifest schema exists"
+        met: true
+        evidence: ["contracts/component-manifest.schema.json"]
+      - criterion: "Manifest generation implemented"
+        met: false
+        evidence: []
+      - criterion: "Manifest persistence table(s) exist"
+        met: false
+        evidence: []
+        note: "No component_sources/harvested_components table (or equivalent) exists in server/src/db/migrations/."
+      - criterion: "Manifests validate (per docs/14-milestones.md:47)"
+        met: false
+        evidence: []
+    notes: "Not started. Matches the task brief's assumed state of 'next'. See EMP open question 2 (data-model target) before starting."
+
+  - id: M4
+    name: "Verification / Repair Loop"
+    status: planned
+    owner: Full-stack/QA
+    exit_criteria:
+      - criterion: "Verification failures produce repair context"
+        met: false
+        evidence: []
+      - criterion: "Repair fixes at least one known import/build error"
+        met: false
+        evidence: []
+      - criterion: "Reviewer can approve/request changes"
+        met: needs-audit
+        evidence: ["server/src/routes/jobs.ts:81-96 (approve only, no request-changes path found)"]
+    notes: >
+      QA step in the orchestrator is a hard-coded placeholder that only appends log lines
+      ("[QA] Running lint...", etc.) and never executes real checks or writes to qa_runs.
+      See server/src/services/orchestrator/index.ts:357-367, which contains an explicit
+      TODO(M3) comment confirming this. qa_runs table has existed since 001_initial.sql but
+      has zero writers found in server/src.
+
+  - id: M5
+    name: "Review / Export / PR Workflow"
+    status: planned
+    owner: Backend/DevOps
+    exit_criteria:
+      - criterion: "Approved generation exports successfully"
+        met: false
+        evidence: []
+      - criterion: "Unapproved generation blocked"
+        met: needs-audit
+        evidence: ["server/src/routes/jobs.ts:85-90 (approve requires status='review')"]
+        note: "A status guard exists for the approve->PR action, but there is no export feature yet to guard."
+      - criterion: "Export includes plan, files, manifests, verification, review"
+        met: false
+        evidence: []
+    notes: >
+      A minimal review->approve->PR path already exists ahead of schedule
+      (server/src/services/orchestrator/index.ts:407-435: approveJob opens a GitHub PR once a
+      job is in 'review' status). No formal review_decisions/checklist, no ZIP/git-patch
+      export, no export_jobs table, no checksums. Matches the task brief's assumed state of
+      'planned' at the milestone level even though some plumbing pre-exists.
+
+  - id: M6
+    name: "Production Hardening"
+    status: planned
+    owner: Product/QA
+    exit_criteria:
+      - criterion: "Security checklist items implemented (docs/11-security-threat-model.md:107-117)"
+        met: false
+        evidence: []
+        note: "No auth, role checks, or rate limiting found in server/src at baseline time."
+    notes: "Not started. Matches the task brief's assumed state of 'planned'."

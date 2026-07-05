@@ -1,0 +1,212 @@
+# Machine-readable backlog for Code-Gen-AI.
+# Source ticket list: backlog/mvp-epics.md (TICKET-001..036).
+# Canonical narrative version: docs/engineering/ENGINEERING_MASTER_PLAN.md (section 4).
+# Status values: done | in_progress | todo | superseded | needs-audit
+# "todo" is the safe default for tickets with no implementation evidence found — it is not
+# a claim that no work has happened, only that this audit found no evidence of completion.
+
+schema_version: 1
+generated_by: "engineering-baseline (2026-07-05)"
+
+epics:
+  - id: EPIC-1
+    title: "Documentation and contracts"
+    milestone: M0
+    tickets:
+      - id: TICKET-001
+        title: "Commit documentation suite"
+        status: done
+        evidence: ["docs/ (18 files)"]
+      - id: TICKET-002
+        title: "Add JSON schemas"
+        status: done
+        evidence: ["contracts/plan.schema.json", "contracts/generation-request.schema.json", "contracts/component-manifest.schema.json", "contracts/openapi.yaml"]
+      - id: TICKET-003
+        title: "Add schema validation tests"
+        status: todo
+        evidence: []
+        note: "No tests found that validate contracts/*.schema.json against sample payloads."
+      - id: TICKET-004
+        title: "Add AI tool instructions"
+        status: done
+        evidence: ["CLAUDE.md", ".cursor/rules/blair-agent-lifecycle.mdc", ".github/copilot-instructions.md", "prompts/blair-system-prompt.md"]
+
+  - id: EPIC-2
+    title: "Backend foundation"
+    milestone: M1
+    tickets:
+      - id: TICKET-005
+        title: "Create Express server skeleton"
+        status: done
+        evidence: ["server/src/index.ts"]
+      - id: TICKET-006
+        title: "Add request ID and error envelope middleware"
+        status: done
+        evidence: ["server/src/middleware/index.ts"]
+      - id: TICKET-007
+        title: "Add database migrations"
+        status: done
+        evidence: ["server/src/db/migrations/001_initial.sql", "002_job_logs.sql", "003_preview_ready_at.sql", "004_registry_components.sql"]
+      - id: TICKET-008
+        title: "Implement generation request persistence"
+        status: done
+        evidence: ["server/src/routes/generations.ts:17-28", "server/src/db/migrations/001_initial.sql:11-26"]
+      - id: TICKET-009
+        title: "Implement audit event service"
+        status: done
+        evidence: ["server/src/services/audit/index.ts"]
+
+  - id: EPIC-3
+    title: "Provider gateway"
+    milestone: M1
+    tickets:
+      - id: TICKET-010
+        title: "Define provider gateway interface"
+        status: done
+        evidence: ["server/src/services/providers/index.ts:1-17 (Provider interface)"]
+      - id: TICKET-011
+        title: "Implement mock provider"
+        status: done
+        evidence: ["server/src/services/providers/index.ts:22-35"]
+      - id: TICKET-012
+        title: "Implement OpenAI provider adapter"
+        status: done
+        evidence: ["server/src/services/providers/index.ts:38-64"]
+      - id: TICKET-013
+        title: "Implement Anthropic provider adapter"
+        status: done
+        evidence: ["server/src/services/providers/index.ts:71-95"]
+      - id: TICKET-014
+        title: "Add provider call logging"
+        status: todo
+        evidence: []
+        note: "provider_calls table exists since 001_initial.sql; no INSERT into it found anywhere in server/src."
+      - id: TICKET-015
+        title: "Add structured plan prompt and validation"
+        status: in_progress
+        evidence: ["server/src/services/orchestrator/index.ts:247 (plan prompt)"]
+        note: "Prompt exists and asks for a structured JSON plan; nothing validates the response against contracts/plan.schema.json."
+
+  - id: EPIC-4
+    title: "Orchestration"
+    milestone: "M1/M4"
+    tickets:
+      - id: TICKET-016
+        title: "Implement lifecycle state machine"
+        status: done
+        evidence: ["server/src/db/migrations/001_initial.sql:17-18 (status CHECK constraint)", "server/src/services/orchestrator/index.ts:242,265,358,370,393"]
+      - id: TICKET-017
+        title: "Block build without valid plan"
+        status: todo
+        evidence: []
+        note: "plans.approved column exists (001_initial.sql:36) but is never read; the orchestrator proceeds from planning to building unconditionally within the same run."
+      - id: TICKET-018
+        title: "Implement plan revisioning"
+        status: todo
+        evidence: []
+        note: "No revision field/logic found; only ever inserts a single plans row per job."
+      - id: TICKET-019
+        title: "Implement repair attempt tracking"
+        status: todo
+        evidence: []
+      - id: TICKET-020
+        title: "Add lifecycle SSE events"
+        status: todo
+        evidence: []
+        note: "docs/09-api-contracts.md:70-89 specifies GET /api/generations/{id}/events; no such route exists. Frontend appears to poll job status/job_logs instead."
+
+  - id: EPIC-5
+    title: "Live preview"
+    milestone: M2
+    tickets:
+      - id: TICKET-021
+        title: "Replace static iframe with Sandpack preview"
+        status: superseded
+        evidence: ["adr/0006-webcontainers-instant-preview.md"]
+        note: "Implemented via WebContainers + Railway branch deploy instead of Sandpack. No Sandpack dependency exists in package.json."
+      - id: TICKET-022
+        title: "Implement preview bundle mapper"
+        status: superseded
+        evidence: []
+        note: "Not applicable to the WebContainers approach (mounts the full repo rather than a curated file/dependency bundle)."
+      - id: TICKET-023
+        title: "Add mock data injection"
+        status: needs-audit
+        evidence: []
+        note: "No dedicated mock-data-injection code found; WebContainers previews run the repo's own code/data as-is, which may or may not need this concept. Needs a scoping decision."
+      - id: TICKET-024
+        title: "Capture preview errors"
+        status: in_progress
+        evidence: ["src/components/dashboard/WebContainersPreview.jsx:91-93 (idle/fetching/booting/installing/starting/ready/error stages)", "server/src/routes/jobs.ts:10-28 (derivePreviewStatus)"]
+        note: "Client-side error states exist and are tested for both preview surfaces. No evidence of server-side persistence of preview error logs (docs' preview_sessions.error_log concept)."
+      - id: TICKET-025
+        title: "Persist preview session results"
+        status: in_progress
+        evidence: ["server/src/db/migrations/003_preview_ready_at.sql", "server/src/services/orchestrator/index.ts:373-390"]
+        note: "preview_url/preview_ready_at persisted directly on jobs; no separate preview_sessions table/history as originally specced."
+
+  - id: EPIC-6
+    title: "Component harvester"
+    milestone: M3
+    tickets:
+      - id: TICKET-026
+        title: "Implement registry adapter interface"
+        status: done
+        evidence: ["server/src/services/harvester/registry.ts"]
+      - id: TICKET-027
+        title: "Implement internal TFRSupply adapter"
+        status: done
+        evidence: ["server/src/services/harvester/adapters/internal.ts"]
+      - id: TICKET-028
+        title: "Implement Shadcn/Radix adapter"
+        status: done
+        evidence: ["server/src/services/harvester/adapters/shadcn.ts"]
+      - id: TICKET-029
+        title: "Implement candidate scoring"
+        status: todo
+        evidence: []
+        note: "docs/06-component-harvester.md:49-65 specifies a weighted 0-100 scoring model; no scoring code found in server/src/services/harvester."
+      - id: TICKET-030
+        title: "Implement TFRS adaptation rules"
+        status: done
+        evidence: ["server/src/services/harvester/tfrs-adapter.ts", "server/src/services/harvester/tfrs-adapter.test.ts"]
+      - id: TICKET-031
+        title: "Persist component manifests"
+        status: todo
+        evidence: []
+        note: "This is M3.3 in full — not started."
+
+  - id: EPIC-7
+    title: "Verification and export"
+    milestone: "M4/M5"
+    tickets:
+      - id: TICKET-032
+        title: "Implement verification runs"
+        status: todo
+        evidence: []
+        note: "qa_runs table exists (001_initial.sql:44-56) but the orchestrator's QA step (index.ts:357-367) is a hard-coded placeholder that never writes to it."
+      - id: TICKET-033
+        title: "Add review decisions"
+        status: todo
+        evidence: []
+        note: "Jobs reach a 'review' status and can be approved (server/src/routes/jobs.ts:81-96), but there is no reviewer checklist or review_decisions-equivalent record."
+      - id: TICKET-034
+        title: "Add ZIP export"
+        status: todo
+        evidence: []
+      - id: TICKET-035
+        title: "Add Git patch export"
+        status: todo
+        evidence: []
+      - id: TICKET-036
+        title: "Add export manifest and checksums"
+        status: todo
+        evidence: []
+
+counts:
+  done: 17
+  in_progress: 3
+  todo: 13
+  superseded: 2
+  needs_audit: 1
+  total: 36

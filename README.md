@@ -63,11 +63,13 @@ Setup notes:
 ## Reading order for Contractors/AI
 
 1. `docs/00-documentation-map.md`
-2. `docs/01-main-spec.md`
-3. `docs/03-system-architecture.md`
-4. `docs/05-agent-lifecycle.md`
-5. `docs/10-data-model.md`
-6. `docs/14-milestones.md`
+2. `docs/engineering/ENGINEERING_MASTER_PLAN.md` — canonical, evidence-based current status,
+   roadmap, active sprint, risks, and next implementation sequence (paired with `project/*.yaml`)
+3. `docs/01-main-spec.md`
+4. `docs/03-system-architecture.md`
+5. `docs/05-agent-lifecycle.md`
+6. `docs/10-data-model.md`
+7. `docs/14-milestones.md` — original target milestone definitions (see the EMP for actual status against these)
 
 ## AI tool entry points
 
