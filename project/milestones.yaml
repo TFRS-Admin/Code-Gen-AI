@@ -115,23 +115,45 @@ milestones:
 
   - id: M3.3
     name: "Harvester — Manifest Persistence"
-    status: next
+    status: complete
     owner: Full-stack
     exit_criteria:
       - criterion: "Manifest schema exists"
         met: true
         evidence: ["contracts/component-manifest.schema.json"]
       - criterion: "Manifest generation implemented"
-        met: false
-        evidence: []
+        met: true
+        evidence: ["server/src/services/harvester/manifest-store.ts (buildManifest)", "server/src/routes/adapt.ts"]
       - criterion: "Manifest persistence table(s) exist"
-        met: false
-        evidence: []
-        note: "No component_sources/harvested_components table (or equivalent) exists in server/src/db/migrations/."
+        met: true
+        evidence: ["server/src/db/migrations/005_component_manifests.sql"]
+        note: >
+          Additive component_manifests table per adr/0007-manifest-persistence-data-model.md
+          (Accepted), FK'd to jobs(id)/plans(id) (nullable, ON DELETE SET NULL, mirroring the
+          provider_calls precedent) — no component_sources/harvested_components/full-ERD table
+          added.
       - criterion: "Manifests validate (per docs/14-milestones.md:47)"
-        met: false
-        evidence: []
-    notes: "Not started. Matches the task brief's assumed state of 'next'. See EMP open question 2 (data-model target) before starting."
+        met: true
+        evidence: ["server/src/services/harvester/manifest-store.ts (ComponentManifestSchema, buildManifest, validateManifest)", "server/src/services/harvester/manifest-store.test.ts"]
+        note: >
+          buildManifest() parses every constructed manifest through a Zod schema mirroring
+          contracts/component-manifest.schema.json field-for-field (same required/optional
+          split, ID patterns, enum, score range, additionalProperties:false); manifest-store.test.ts
+          covers valid construction, rejection of a malformed manifestId, a missing required
+          field, and an out-of-range score.
+    notes: >
+      Implemented on the lean data model per adr/0007-manifest-persistence-data-model.md
+      (Accepted). /api/adapt's /component and /batch endpoints now build and persist a manifest
+      per adaptation (server/src/routes/adapt.ts), with new/updated coverage in
+      server/src/routes/adapt.test.ts and server/src/services/harvester/manifest-store.test.ts
+      (75 total server tests passing at time of this update, up from 61 at baseline).
+      Caveat: the migration SQL has been type-checked, built, and reviewed against the
+      004_registry_components.sql precedent, but has not been executed against a live Postgres
+      instance in this environment (no server/src test touches db/client directly — same
+      untested-migration-execution gap M3.1's registry_components table already has). Known,
+      documented limitation carried into RISK-14 (project/risks.yaml): candidate scoring
+      (TICKET-029) is not implemented, so the manifest `score` field is a fixed placeholder
+      (100 for a registry match, 0 for an unmatched/custom adaptation), not a computed signal.
 
   - id: M4
     name: "Verification / Repair Loop"

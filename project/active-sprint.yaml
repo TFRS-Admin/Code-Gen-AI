@@ -14,7 +14,9 @@ sprint:
     start: needs-audit
     end: needs-audit
   goal: >
-    Close out M3.2 Component Adaptation and begin M3.3 Manifest Persistence.
+    Close out M3.2 Component Adaptation and begin M3.3 Manifest Persistence. M3.3 is now
+    implemented (SPR-3 through SPR-6 done); M3.2's ComponentHarvester.jsx wiring audit
+    (SPR-1) and candidate-scoring scope decision (SPR-2) remain open.
   milestones_in_focus: [M3.2, M3.3]
 
   items:
@@ -38,29 +40,37 @@ sprint:
       evidence: ["adr/0007-manifest-persistence-data-model.md"]
       note: >
         Decided: build M3.3 on the existing lean jobs/plans/qa_runs schema (additive
-        component_manifests-style table); defer the full ERD until after M5. ADR Status is
-        currently "Proposed" — needs owner sign-off to "Accepted" before SPR-4's migration is
-        written (see RISK-13 in project/risks.yaml).
+        component_manifests-style table); defer the full ERD until after M5. ADR-0007 is now
+        Accepted (2026-07-05).
 
     - id: SPR-4
       title: "Design and land manifest persistence table(s)"
       milestone: M3.3
-      status: todo
-      blocked_by: []
-      reference: "contracts/component-manifest.schema.json, adr/0007-manifest-persistence-data-model.md"
-      note: "Unblocked by SPR-3. Still pending ADR-0007 acceptance and the ID-format shim in RISK-12 before implementation starts."
+      status: done
+      evidence: ["server/src/db/migrations/005_component_manifests.sql"]
+      note: >
+        component_manifests table added, FK'd to jobs(id)/plans(id) (nullable, ON DELETE SET
+        NULL). Type-checked and included in `npm run build`'s dist/db/migrations output; not
+        executed against a live Postgres in this environment (no test touches db/client
+        directly, same as the existing registry_components table).
 
     - id: SPR-5
       title: "Implement manifest-generation service and wire into /api/adapt"
       milestone: M3.3
-      status: todo
-      blocked_by: [SPR-4]
+      status: done
+      evidence: ["server/src/services/harvester/manifest-store.ts", "server/src/routes/adapt.ts"]
+      note: >
+        buildManifest()/validateManifest() mint schema-compatible hc_*/plan_* IDs and validate
+        every manifest via a Zod schema mirroring contracts/component-manifest.schema.json;
+        /api/adapt's /component and /batch endpoints now build and persist one manifest per
+        adaptation and return it in the response.
 
     - id: SPR-6
       title: "Add tests for manifest generation/persistence mirroring adapt.test.ts / registry.test.ts patterns"
       milestone: M3.3
-      status: todo
-      blocked_by: [SPR-5]
+      status: done
+      evidence: ["server/src/services/harvester/manifest-store.test.ts", "server/src/routes/adapt.test.ts"]
+      note: "75 server tests passing (up from 61 at baseline); covers manifest building, schema validation (valid + rejected cases), ID-prefix format, and a manifestToRow/rowToManifest round-trip."
 
   out_of_sprint_but_flagged:
     - "M4 QA placeholder replacement (server/src/services/orchestrator/index.ts:357-367) — next sprint after M3.3."

@@ -10,14 +10,22 @@ does not provide direct evidence, the status is marked `unknown` or `needs-audit
 assumed.
 
 **Update (2026-07-05, M3.3 prep):** Open Question 2 (data-model target) is resolved by
-`adr/0007-manifest-persistence-data-model.md` (Status: Proposed) — M3.3 manifest persistence
-should build on the existing lean `jobs`/`plans`/`qa_runs` schema, adding a minimal
-`component_manifests`-style table, rather than migrating to the full ERD in
-`docs/10-data-model.md`. See §3 (M3.3), §10 (Open Question 2), and §11 below for the updated
-status; the full data-model migration is deferred until after M5 per the ADR. No product code
-or schema has been changed by this update — see the ADR for the recommended implementation
-shape and `project/active-sprint.yaml`/`project/backlog.yaml` for the resulting task
-breakdown.
+`adr/0007-manifest-persistence-data-model.md` — M3.3 manifest persistence builds on the
+existing lean `jobs`/`plans`/`qa_runs` schema, adding a minimal `component_manifests`-style
+table, rather than migrating to the full ERD in `docs/10-data-model.md`. The full data-model
+migration is deferred until after M5 per the ADR.
+
+**Update (2026-07-05, M3.3 implementation):** ADR-0007 is now **Accepted**. M3.3 is
+implemented: `server/src/db/migrations/005_component_manifests.sql` adds the
+`component_manifests` table; `server/src/services/harvester/manifest-store.ts` builds,
+validates (via a Zod schema mirroring `contracts/component-manifest.schema.json`), and
+persists manifests; `server/src/routes/adapt.ts`'s `/component` and `/batch` endpoints now
+build and persist one manifest per adaptation. 75 server tests pass (up from 61 at baseline),
+covering manifest construction, schema validation (accept + reject cases), ID-prefix format,
+and a manifest↔row mapping round-trip. See §3 (M3.3), §10 (Open Questions 2 and 4), and §11
+below for the updated status, and `project/risks.yaml` RISK-14 for the one known, documented
+gap this introduces (the manifest `score` field is a fixed placeholder — candidate scoring,
+TICKET-029, is still not implemented).
 
 This document does not replace the design/spec suite in `docs/00-documentation-map.md` — it
 tracks *status and sequencing* against that suite, and records where the running code has
@@ -50,7 +58,7 @@ preview → shows a diff → opens a PR.
 | Backend | Express/TypeScript app under `server/src` | `server/src/index.ts` |
 | Routes mounted | `/api/health`, `/api/generations` (create job + chat), `/api/jobs`, `/api/github`, `/api/repos`, `/api/registry`, `/api/adapt` | `server/src/index.ts:23-29` |
 | Orchestrator | Single state machine driving a job through `queued → planning → building → qa → preview → review → pr_opened/shipped`, or `failed`/`cancelled` | `server/src/db/migrations/001_initial.sql:17-18`, `server/src/services/orchestrator/index.ts:242,265,358,370,393` |
-| Persistence | Postgres: `jobs`, `plans`, `qa_runs`, `provider_calls`, `audit_events`, `registry_components` | `server/src/db/migrations/001_initial.sql`, `004_registry_components.sql` |
+| Persistence | Postgres: `jobs`, `plans`, `qa_runs`, `provider_calls`, `audit_events`, `registry_components`, `component_manifests` | `server/src/db/migrations/001_initial.sql`, `004_registry_components.sql`, `005_component_manifests.sql` |
 | Provider gateway | Mock / OpenAI / Anthropic adapters behind one `Provider` interface, server-side only | `server/src/services/providers/index.ts:1-60`, `.env.example:11-19` |
 | Component harvester | Internal + Shadcn registry adapters, TFRS class adapter, `/api/registry` and `/api/adapt` routes | `server/src/services/harvester/registry.ts`, `adapters/{internal,shadcn}.ts`, `tfrs-adapter.ts`, `routes/registry.ts`, `routes/adapt.ts` |
 | GitHub integration | Repo/branch listing, file commits, PR creation on approval | `server/src/services/github/index.ts`, `server/src/routes/{github,repos}.ts`, orchestrator `approveJob` (`server/src/services/orchestrator/index.ts:407-435`) |
@@ -99,10 +107,10 @@ roadmap and backlog:
    in `server/src/services/orchestrator/index.ts` validates the provider's JSON plan output
    against it (no `zod`/schema parse of the plan found). The plan is only consumed loosely for
    `file_manifest` (`server/src/services/orchestrator/index.ts:111-123`).
-7. **No component manifest persistence.** `contracts/component-manifest.schema.json` exists as
-   a schema-only contract. `server/src/routes/adapt.ts` adapts component code and extracts TFRS
-   classes but returns them directly in the response — nothing persists a manifest anywhere.
-   This is exactly the scope of **M3.3**, tracked as not-started.
+7. ~~**No component manifest persistence.**~~ **Resolved (M3.3).** `server/src/routes/adapt.ts`
+   now builds a manifest per adaptation via `server/src/services/harvester/manifest-store.ts`
+   and persists it to `component_manifests` (`server/src/db/migrations/005_component_manifests.sql`).
+   See `adr/0007-manifest-persistence-data-model.md`.
 8. **Branching model mismatch.** `CLAUDE.md`, `docs/04-repository-contracts.md:116`, and the
    Cursor rules all say work should branch from `develop`. The remote repository has no
    `develop` branch — only `main` and short-lived `claude/*` feature branches
@@ -127,7 +135,7 @@ milestone state provided for this baseline plus repo evidence found during the a
 | M2 — Live Preview | **Complete** | Two working preview surfaces (WebContainers instant preview, Railway job preview) per ADR-0006. Supersedes the Sandpack plan in ADR-0002/docs/08 (§2.2.1). |
 | M3.1 — Registry | **Complete** | `server/src/services/harvester/registry.ts`, internal + Shadcn adapters, `registry_components` table, `/api/registry` route, `registry.test.ts` passing. |
 | M3.2 — Component Adaptation | **In progress** | `tfrs-adapter.ts` + `/api/adapt` route implement class-level TFRS adaptation and are unit-tested (`tfrs-adapter.test.ts`, `adapt.test.ts`). Not done: no scoring persistence, no `ComponentHarvester.jsx` end-to-end wiring audit performed, no manifest emitted (that's M3.3). |
-| M3.3 — Manifest Persistence | **Next (not started); data-model decided** | `contracts/component-manifest.schema.json` exists; no table, service, or route produces or stores a manifest. Data-model target resolved by `adr/0007-manifest-persistence-data-model.md` (Proposed): build on the lean schema, not the full ERD. |
+| M3.3 — Manifest Persistence | **Complete** | `adr/0007-manifest-persistence-data-model.md` (Accepted): lean-schema decision. `server/src/db/migrations/005_component_manifests.sql` adds the table; `server/src/services/harvester/manifest-store.ts` builds/validates/persists manifests; `server/src/routes/adapt.ts` wires it into `/component` and `/batch`. Tests: `manifest-store.test.ts`, updated `adapt.test.ts` (75/75 server tests passing). Caveat: migration not executed against a live Postgres in this environment (same gap as `registry_components`); `score` is a fixed placeholder pending candidate scoring (TICKET-029, RISK-14). |
 | M4 — Verification / Repair Loop | **Planned (not started)** | `qa_runs` table exists but is never written to; the orchestrator's QA step is a hard-coded placeholder (§2.2.4). No repair-from-failure code path exists. |
 | M5 — Review / Export / PR Workflow | **Planned (partially pre-built)** | A minimal review→approve→PR path already exists (`jobs.status = 'review'`, `POST /api/jobs/:id/approve` opens a PR — `server/src/services/orchestrator/index.ts:407-435`). Missing: reviewer checklist/`review_decisions`, ZIP/patch export, `export_jobs`, checksums, export approval guard. |
 | M6 — Production Hardening | **Planned (not started)** | No auth/role checks, rate limiting, or the rest of the `docs/11-security-threat-model.md:107-117` checklist found in `server/src`. |
@@ -146,7 +154,8 @@ per-ticket status is in `project/backlog.yaml`.
   events work; no repair-attempt tracking, no SSE streaming — the frontend gets state via
   `job_logs` polling, not `/events`).
 - **EPIC-5 Live Preview** (M2) — complete, via WebContainers + Railway rather than Sandpack.
-- **EPIC-6 Component Harvester** (M3) — in progress; see M3.1/M3.2/M3.3 above.
+- **EPIC-6 Component Harvester** (M3) — in progress; M3.1 and M3.3 complete, M3.2 in progress
+  (see M3.1/M3.2/M3.3 above).
 - **EPIC-7 Verification & Repair** (M4) — not started beyond an empty table and a log-only
   placeholder step.
 - **EPIC-8 Review & Export** (M5) — partially started (approve → PR); export packaging not
@@ -161,9 +170,12 @@ form):
 1. **M3.2 completion** — finish TFRS component adaptation: confirm `ComponentHarvester.jsx` is
    wired end-to-end to `/api/registry` + `/api/adapt`, decide whether candidate scoring
    (`docs/06-component-harvester.md:49-65`) is in scope before M3.3 or deferred.
-2. **M3.3 Manifest Persistence** — design and land `component_sources`/`harvested_components`
-   (or an equivalent minimal table), a manifest-generation step that satisfies
-   `contracts/component-manifest.schema.json`, and wire it into the `/api/adapt` response path.
+2. ~~**M3.3 Manifest Persistence**~~ **Done** — `component_manifests` table
+   (`server/src/db/migrations/005_component_manifests.sql`), manifest-generation service
+   (`server/src/services/harvester/manifest-store.ts`) satisfying
+   `contracts/component-manifest.schema.json`, wired into the `/api/adapt` response path
+   (`server/src/routes/adapt.ts`). Candidate scoring (previously item 1's open question) is
+   still deferred — the manifest `score` field ships as a fixed placeholder (RISK-14).
 3. **M4 Verification / Repair Loop** — replace the QA placeholder with real
    lint/build/typecheck/test execution against the sandboxed checkout, persist results to
    `qa_runs`, and add a repair pass that feeds failures back to the provider
@@ -182,10 +194,11 @@ match the shipped architecture instead of the original target design.
 
 ## 6. Active sprint
 
-See `project/active-sprint.yaml` for the structured version. Summary: the active sprint closes
-out **M3.2 Component Adaptation** and starts **M3.3 Manifest Persistence** — the two milestones
-the task brief identified as "in progress" and "next." No sprint dates are asserted here (none
-found in the repo); `project/active-sprint.yaml` marks the window as `needs-audit`.
+See `project/active-sprint.yaml` for the structured version. Summary: **M3.3 Manifest
+Persistence** is now implemented and its sprint items (SPR-3 through SPR-6) are done; **M3.2
+Component Adaptation** close-out (SPR-1 `ComponentHarvester.jsx` wiring audit, SPR-2 scoring
+scope decision) remains open. No sprint dates are asserted here (none found in the repo);
+`project/active-sprint.yaml` marks the window as `needs-audit`.
 
 ## 7. Verification gates
 
@@ -195,7 +208,7 @@ baseline actually ran (§9):
 | Gate | Definition | Current enforcement |
 |---|---|---|
 | Gate 1 — Plan readiness | Plan schema valid, data model defined, routes/components listed, checks listed, risks listed | **Not enforced in code.** Plan is generated but not schema-validated (§2.2.6). |
-| Gate 2 — Build readiness | File paths valid, imports resolve/mocked, dependency manifest present, component manifests valid | **Partially enforced.** Files are committed via GitHub API; no import-resolution or manifest check runs first. |
+| Gate 2 — Build readiness | File paths valid, imports resolve/mocked, dependency manifest present, component manifests valid | **Partially enforced.** Files are committed via GitHub API; no import-resolution check runs first. Component manifests are now generated and schema-validated at adapt time (M3.3, `server/src/services/harvester/manifest-store.ts`), but the orchestrator's build step does not yet gate on manifest validity before committing files (no consumer of `component_manifests` in `server/src/services/orchestrator/index.ts` yet). |
 | Gate 3 — Preview readiness | Preview bundle created, boots or failure shown, runtime errors captured, mock data present | **Enforced for the Railway/WebContainers surfaces** (poll-until-ready, explicit `error`/`building`/`ready` states — `server/src/routes/jobs.ts:10-28`). No "runtime console error capture" evidence found. |
 | Gate 4 — Export readiness | Reviewer approved, verification summary attached, dependency diff attached, manifests attached, checksums generated | **Not implemented** (no export feature yet). |
 | Repo-level CI gates (this baseline) | install / typecheck / lint / test / build, both workspaces | See §9 — lint/test/build pass; typecheck has 165 pre-existing frontend errors (not introduced by this change). |
@@ -215,8 +228,12 @@ Full register with probability/impact/mitigation in `project/risks.yaml`. Carrie
 - Pre-existing TypeScript errors (165, concentrated in `src/pages/Projects.jsx` and
   `src/pages/Settings.jsx`) mean `npm run typecheck` cannot be used as a merge gate today
   without first triaging whether they're real bugs or `RefAttributes`/forwardRef typing noise.
-- License/dependency-weight risk from `docs/14-milestones.md` remains open because there is no
-  manifest persistence yet to record it against (M3.3 dependency).
+- License/dependency-weight risk from `docs/14-milestones.md` is now partially mitigated: M3.3
+  manifests record a required `license` field per adapted component (RISK-3 in
+  `project/risks.yaml`, now `partially_mitigated`), though there is still no human review gate
+  on that field and unmatched/custom adaptations record `license: "unknown"`.
+- The manifest `score` field (M3.3) is a fixed placeholder, not a computed candidate score —
+  candidate scoring (TICKET-029) is still not implemented (RISK-14).
 - Branch-strategy ambiguity (`develop` vs `main`) could cause an agent to create a PR against
   a branch that doesn't exist, or to misapply the "no direct commit to main" rule.
 
@@ -237,6 +254,11 @@ Full register with probability/impact/mitigation in `project/risks.yaml`. Carrie
 - `docs/08-live-preview-runtime.md`, `docs/09-api-contracts.md`, `docs/10-data-model.md` need a
   revision pass to match the shipped job-centric architecture (§2.2.1-3), or an ADR explaining
   why the simplified model is intentional and permanent.
+- Manifest `score` (M3.3) is a fixed placeholder (100/0), not a computed candidate score —
+  candidate scoring (TICKET-029, RISK-14) is still not implemented.
+- `component_manifests` (M3.3) has not been exercised against a live Postgres instance in this
+  environment — verified via type-checking, `npm run build`, and pure-function mapping-level
+  round-trip tests only (same gap `registry_components` already has, just newly documented).
 
 ## 10. Open questions
 
@@ -245,16 +267,20 @@ Full register with probability/impact/mitigation in `project/risks.yaml`. Carrie
    from Blair/repo owner**, not resolved by this baseline.
 2. ~~Is the simplified `jobs`/`plans`/`qa_runs` schema the intentional permanent data model, or is
    the full ERD in `docs/10-data-model.md` still the target for M4+?~~ **Resolved** by
-   `adr/0007-manifest-persistence-data-model.md` (Status: Proposed): M3.3 (and, by the same
+   `adr/0007-manifest-persistence-data-model.md` (Status: **Accepted**): M3.3 (and, by the same
    reasoning, M4/M5) build on the existing `jobs`/`plans`/`qa_runs` schema with additive
    manifest table(s); the full ERD (`generation_requests`/`verification_runs`/
    `review_decisions`/`export_jobs`/`users`/`projects`) is deferred until after M5 pending a
-   concrete M6+ requirement. Still needs sign-off from Blair/repo owner to move the ADR from
-   Proposed to Accepted before any migration is written.
+   concrete M6+ requirement. Implemented: `server/src/db/migrations/005_component_manifests.sql`.
 3. Should Sandpack still be built (per ADR-0002/docs/08), or should that ADR be superseded now
    that WebContainers + Railway preview are shipped and working? (§2.2.1)
-4. Is candidate scoring (`docs/06-component-harvester.md:49-65`, weighted 0-100 score) required
-   before M3.3 manifest persistence, or can manifests ship with `score` fixed/omitted for now?
+4. ~~Is candidate scoring (`docs/06-component-harvester.md:49-65`, weighted 0-100 score) required
+   before M3.3 manifest persistence, or can manifests ship with `score` fixed/omitted for now?~~
+   **Resolved (by implementation choice, not a design authority):** M3.3 shipped with `score`
+   as a fixed placeholder (100 for a registry match, 0 for unmatched/custom — see
+   `server/src/services/harvester/manifest-store.ts`), not a computed signal. TICKET-029
+   (candidate scoring) remains open (RISK-14) and should replace these placeholders when
+   scoped.
 5. Are the Stripe and `three` dependencies reserved for a near-term feature, or safe to remove?
    (§2.2.9) — `unknown`, no ADR or doc references either.
 6. What is the actual sprint cadence/dates for this team? `project/active-sprint.yaml` marks
@@ -265,22 +291,23 @@ Full register with probability/impact/mitigation in `project/risks.yaml`. Carrie
 Recommended order for the next agent, most-blocking first:
 
 1. ~~Resolve Open Question 2 (data-model target)~~ **Done** — see
-   `adr/0007-manifest-persistence-data-model.md`. Get the ADR moved from Proposed to Accepted
-   before starting step 3's migration.
-2. **M3.2 close-out**: audit `src/pages/ComponentHarvester.jsx` against `/api/registry` +
-   `/api/adapt` to confirm the UI path is real end-to-end, not just the API/unit-test layer.
-3. **M3.3 Manifest Persistence**: add the manifest table(s) per ADR-0007 (additive, keyed off
-   `plans(id)`/`jobs(id)`, no `users`/`projects`/`generation_requests`), a service that
-   populates `contracts/component-manifest.schema.json`-shaped records from the
-   `/api/adapt` flow, and tests mirroring the existing `adapt.test.ts`/`registry.test.ts`
-   patterns.
+   `adr/0007-manifest-persistence-data-model.md` (Accepted).
+2. ~~**M3.3 Manifest Persistence**~~ **Done** — `component_manifests` table, `manifest-store.ts`
+   service, `/api/adapt` wiring, tests (see the implementation update banner at the top of this
+   document). Not yet run against a live Postgres in this environment.
+3. **M3.2 close-out**: audit `src/pages/ComponentHarvester.jsx` against `/api/registry` +
+   `/api/adapt` to confirm the UI path is real end-to-end, not just the API/unit-test layer, and
+   confirm whether it should be updated to surface the new `manifest` field in adapt responses.
 4. **M4 kickoff**: replace the QA placeholder (`server/src/services/orchestrator/index.ts:357-367`)
    with real `lint`/`build`/`typecheck`/`test` execution against the sandboxed checkout,
    persisted to `qa_runs`.
-5. Everything else in §5 (roadmap) in the order listed there.
+5. **Candidate scoring (TICKET-029)**: replace the fixed placeholder scores in
+   `server/src/services/harvester/manifest-store.ts` with the weighted 0-100 model from
+   `docs/06-component-harvester.md:49-65` (RISK-14) — not blocking, but the next natural
+   improvement to M3.3's output quality.
+6. Everything else in §5 (roadmap) in the order listed there.
 
-Concretely, the single highest-value next issue is **#3 (M3.3 Manifest Persistence)** now that
-Open Question 2 is answered (ADR-0007) — it's explicitly called out as "next" in the assumed
-milestone state, has a schema contract already waiting
-(`contracts/component-manifest.schema.json`), and unblocks the M3 exit criteria in
-`docs/14-milestones.md:43-48` ("manifests validate").
+Concretely, the single highest-value next issue is **#4 (M4 kickoff)** now that M3.3 is
+implemented — the orchestrator's QA step is still a hard-coded placeholder
+(`server/src/services/orchestrator/index.ts:357-367`) and is the next milestone-blocking gap
+per `docs/14-milestones.md`.

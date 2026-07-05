@@ -172,14 +172,20 @@ epics:
         evidence: ["server/src/services/harvester/tfrs-adapter.ts", "server/src/services/harvester/tfrs-adapter.test.ts"]
       - id: TICKET-031
         title: "Persist component manifests"
-        status: todo
-        evidence: ["adr/0007-manifest-persistence-data-model.md"]
+        status: done
+        evidence:
+          - "adr/0007-manifest-persistence-data-model.md (Accepted)"
+          - "server/src/db/migrations/005_component_manifests.sql"
+          - "server/src/services/harvester/manifest-store.ts"
+          - "server/src/routes/adapt.ts"
+          - "server/src/services/harvester/manifest-store.test.ts"
+          - "server/src/routes/adapt.test.ts"
         note: >
-          This is M3.3 in full — not started. Data-model target is now decided (ADR-0007,
-          Status: Proposed): additive component_manifests-style table keyed off
-          jobs(id)/plans(id), no full-ERD migration. Unblocked pending ADR acceptance
-          (see RISK-13 in project/risks.yaml). Must also resolve the manifestId/generationPlanId
-          ID-format gap (RISK-12) as part of implementation.
+          M3.3 implemented on the lean data model per ADR-0007 (Accepted): additive
+          component_manifests table keyed off jobs(id)/plans(id), synthetic hc_*/plan_* IDs
+          minted at build time (resolving RISK-12), /api/adapt's component and batch endpoints
+          build+persist a manifest per adaptation. score is a documented fixed placeholder
+          (candidate scoring, TICKET-029, is still not implemented — see RISK-14).
 
   - id: EPIC-7
     title: "Verification and export"
@@ -209,9 +215,9 @@ epics:
         evidence: []
 
 counts:
-  done: 17
+  done: 18
   in_progress: 3
-  todo: 13
+  todo: 12
   superseded: 2
   needs_audit: 1
   total: 36
