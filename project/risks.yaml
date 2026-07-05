@@ -35,16 +35,16 @@ risks:
     title: "License ambiguity"
     source: "docs/14-milestones.md"
     probability: medium
-    impact: high
+    impact: medium
     mitigation: "Manifest license field, review"
-    status: open
+    status: partially_mitigated
     repo_evidence: >
-      contracts/component-manifest.schema.json defines a license field, but nothing persists
-      manifests yet (M3.3 not started), so there is no license record for harvested components
-      today. Data-model target for the persistence table is now decided
-      (adr/0007-manifest-persistence-data-model.md, Proposed): a lean, additive
-      component_manifests table keyed off jobs(id)/plans(id) — implementation still not
-      started.
+      M3.3 implemented (adr/0007-manifest-persistence-data-model.md, Accepted;
+      server/src/services/harvester/manifest-store.ts): every adapted component now produces
+      a manifest with a required, schema-validated `license` field, persisted to
+      component_manifests. Not fully mitigated: when no registry component is matched
+      (componentMetadata is null), license is recorded as the literal string "unknown" rather
+      than a reviewed value — there is still no human review step gating on that field.
 
   - id: RISK-4
     title: "TFRS drift"
@@ -145,24 +145,23 @@ risks:
       on the remote — no `develop` branch exists, despite CLAUDE.md and
       docs/04-repository-contracts.md:116 specifying a `develop -> feature/*` workflow.
 
-  # ── New risks confirmed during the M3.3 manifest-persistence ADR audit (2026-07-05) ──
+  # ── Risks from the M3.3 manifest-persistence ADR audit (2026-07-05) — resolved by implementation ──
   - id: RISK-12
     title: "Manifest schema ID patterns do not match the running schema's raw UUID IDs"
     source: "adr/0007-manifest-persistence-data-model.md"
     probability: high
     impact: medium
     mitigation: >
-      Mint synthetic prefixed IDs (hc_<uuid> for manifestId, plan_<uuid> for generationPlanId)
-      at manifest-insert time, per adr/0007-manifest-persistence-data-model.md's Decision
-      section, rather than changing how jobs/plans primary keys work internally.
-    status: open
+      Mint synthetic prefixed IDs (hc_<uuid> for manifestId, plan_<uuid-or-adhoc> for
+      generationPlanId) at manifest-build time, per
+      adr/0007-manifest-persistence-data-model.md's Decision section, rather than changing how
+      jobs/plans primary keys work internally.
+    status: resolved
     repo_evidence: >
-      contracts/component-manifest.schema.json:24-31 requires manifestId to match
-      ^hc_[A-Za-z0-9_-]+$ and generationPlanId to match ^plan_[A-Za-z0-9_-]+$, but
-      server/src/db/migrations/001_initial.sql:12,33 defines jobs.id and plans.id as raw
-      Postgres UUIDs with no application-level prefixing anywhere in
-      server/src/services/orchestrator/index.ts. This gap exists regardless of which data
-      model M3.3 builds on and must be closed by the M3.3 implementation.
+      Implemented in server/src/services/harvester/manifest-store.ts (mintManifestId,
+      mintGenerationPlanId), enforced by ComponentManifestSchema's regex validation on every
+      buildManifest() call, and covered by
+      server/src/services/harvester/manifest-store.test.ts's ID-prefix-format test.
 
   - id: RISK-13
     title: "ADR-0007 is Proposed, not yet Accepted — migration should not start on it as-is"
@@ -170,8 +169,30 @@ risks:
     probability: medium
     impact: medium
     mitigation: "Get explicit owner (Blair) sign-off to flip ADR-0007's Status to Accepted before any M3.3 schema migration is written, per the task's quality bar (\"No schema migration until ADR is written and accepted\")."
+    status: resolved
+    repo_evidence: >
+      adr/0007-manifest-persistence-data-model.md's Status is now "Accepted" (2026-07-05,
+      accepted by product owner / technical lead for M3.3 implementation), with an explicit
+      note that the full-ERD alternative is not being reopened. The M3.3 migration
+      (005_component_manifests.sql) was written after this acceptance.
+
+  # ── New risk from the M3.3 implementation (2026-07-05) ──
+  - id: RISK-14
+    title: "Manifest `score` field is a fixed placeholder, not a computed candidate score"
+    source: "M3.3 implementation"
+    probability: high
+    impact: low
+    mitigation: >
+      Implement candidate scoring (TICKET-029, docs/06-component-harvester.md:49-65's weighted
+      0-100 model) and replace the two fixed constants
+      (REGISTRY_MATCH_PLACEHOLDER_SCORE / UNMATCHED_CUSTOM_PLACEHOLDER_SCORE) in
+      server/src/services/harvester/manifest-store.ts with a real score. Does not block M3.3's
+      exit criteria (docs/14-milestones.md:41-48 only requires "Manifests validate", not
+      "manifests are scored"; EMP Open Question 4 explicitly allowed shipping with score
+      fixed/omitted).
     status: open
     repo_evidence: >
-      adr/0007-manifest-persistence-data-model.md's Status field is "Proposed". No migration
-      file for a manifest table exists in server/src/db/migrations/ as of this update — this
-      branch is documentation-only, per instruction.
+      server/src/services/harvester/manifest-store.ts defines
+      REGISTRY_MATCH_PLACEHOLDER_SCORE = 100 and UNMATCHED_CUSTOM_PLACEHOLDER_SCORE = 0 with an
+      explicit comment that these are not a computed signal — TICKET-029 (candidate scoring)
+      remains status: todo in project/backlog.yaml.

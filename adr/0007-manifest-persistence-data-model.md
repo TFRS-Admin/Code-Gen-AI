@@ -2,7 +2,11 @@
 
 ## Status
 
-Proposed
+Accepted
+
+Accepted by product owner / technical lead for M3.3 implementation (2026-07-05). The lean-model
+decision below is final for M3.3; the full ERD in `docs/10-data-model.md` is not being reopened
+as part of this acceptance — see "Alternatives considered" for when it should be revisited.
 
 ## Context
 
