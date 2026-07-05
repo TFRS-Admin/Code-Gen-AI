@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import express from 'express';
 import type { AddressInfo } from 'node:net';
 import { createJobsRouter, JobsRouterDeps } from './jobs';
+import { errorHandler } from '../middleware';
 
 const unusedDeps: JobsRouterDeps = {
   getJob: async () => {
@@ -20,6 +21,7 @@ const unusedDeps: JobsRouterDeps = {
 async function withServer<T>(deps: JobsRouterDeps, fn: (baseUrl: string) => Promise<T>): Promise<T> {
   const app = express();
   app.use('/api/jobs', createJobsRouter(deps));
+  app.use(errorHandler);
   const server = app.listen(0);
   await new Promise<void>((resolve) => server.once('listening', resolve));
   const { port } = server.address() as AddressInfo;
@@ -119,5 +121,45 @@ test('GET /api/jobs/:id: returns 404 NOT_FOUND when the job does not exist', asy
     const body = (await res.json()) as any;
     assert.equal(res.status, 404);
     assert.equal(body.error.code, 'NOT_FOUND');
+  });
+});
+
+test('GET /api/jobs: returns 200 with an empty array when no jobs exist', async () => {
+  const deps: JobsRouterDeps = { ...unusedDeps, listJobs: async () => [] };
+  await withServer(deps, async (baseUrl) => {
+    const res = await fetch(baseUrl);
+    const body = (await res.json()) as any;
+    assert.equal(res.status, 200);
+    assert.deepEqual(body, { ok: true, data: [] });
+  });
+});
+
+test('GET /api/jobs: returns 200 with the job list when jobs exist', async () => {
+  const jobs = [baseJob({ id: 'job-1' }), baseJob({ id: 'job-2' })];
+  const deps: JobsRouterDeps = { ...unusedDeps, listJobs: async () => jobs };
+  await withServer(deps, async (baseUrl) => {
+    const res = await fetch(baseUrl);
+    const body = (await res.json()) as any;
+    assert.equal(res.status, 200);
+    assert.deepEqual(body, { ok: true, data: jobs });
+  });
+});
+
+test('GET /api/jobs: returns a generic 500 without leaking internal error details when the DB query fails', async () => {
+  const deps: JobsRouterDeps = {
+    ...unusedDeps,
+    listJobs: async () => {
+      const dbErr: any = new Error('relation "jobs" does not exist');
+      dbErr.code = '42P01';
+      throw dbErr;
+    },
+  };
+  await withServer(deps, async (baseUrl) => {
+    const res = await fetch(baseUrl);
+    const body = (await res.json()) as any;
+    assert.equal(res.status, 500);
+    assert.equal(body.ok, false);
+    assert.equal(body.error.code, 'INTERNAL_ERROR');
+    assert.equal(body.error.message, 'An unexpected error occurred');
   });
 });
