@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { BlairAPI } from "@/api/blair";
+import { useToast } from "@/components/ui/use-toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
@@ -72,6 +73,7 @@ function useResponsiveTier() {
 
 export default function Dashboard() {
   const location = useLocation();
+  const { toast } = useToast();
   const isNewJob = location.search.includes("new=true");
   const tier = useResponsiveTier();
   const isMobile = tier === "mobile";
@@ -145,7 +147,7 @@ export default function Dashboard() {
           setMessages((prev) =>
             prev.map((m) =>
               m.id === msgId
-                ? { ...m, content: terminal ? finalMessageFor(job) : statusMessageFor(job), isStreaming: !terminal }
+                ? { ...m, job, content: terminal ? finalMessageFor(job) : statusMessageFor(job), isStreaming: !terminal }
                 : m
             )
           );
@@ -178,7 +180,13 @@ export default function Dashboard() {
           const terminal = TERMINAL_STATUSES.includes(job.status);
           const msgId = newMessageId("assistant");
           setMessages([
-            { id: msgId, role: "assistant", content: terminal ? finalMessageFor(job) : statusMessageFor(job), isStreaming: !terminal },
+            {
+              id: msgId,
+              role: "assistant",
+              content: terminal ? finalMessageFor(job) : statusMessageFor(job),
+              isStreaming: !terminal,
+              job,
+            },
           ]);
           if (!terminal) pollJob(job.id, msgId);
         }
@@ -306,11 +314,24 @@ export default function Dashboard() {
       setRightPanelTab("preview");
       fetchPreview(id);
 
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: newMessageId("system"),
+          role: "system",
+          content: `Job submitted: ${selectedRepo.full_name} / ${selectedBranch}`,
+        },
+      ]);
+
       const msgId = newMessageId("assistant");
-      setMessages((prev) => [...prev, { id: msgId, role: "assistant", content: statusMessageFor(job), isStreaming: true }]);
+      setMessages((prev) => [
+        ...prev,
+        { id: msgId, role: "assistant", content: statusMessageFor(job), isStreaming: true, job },
+      ]);
       pollJob(id, msgId);
     } catch (err) {
       setSubmitError(err.message);
+      toast({ title: "Job submission failed", description: err.message, variant: "destructive" });
       setMessages((prev) => [
         ...prev,
         { id: newMessageId("assistant"), role: "assistant", content: `Sorry — I couldn't start that job: ${err.message}` },
@@ -352,6 +373,7 @@ export default function Dashboard() {
         onChange={setPromptValue}
         onSend={handleSend}
         disabled={inputDisabled}
+        sending={isSubmitting}
         placeholder={placeholder}
         attachments={attachments}
         onAttach={(files) => setAttachments((prev) => [...prev, ...files])}
