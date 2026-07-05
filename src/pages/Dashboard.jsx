@@ -1,96 +1,116 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { BlairAPI } from "@/api/blair";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { Badge } from "@/components/ui/badge";
-import PreviewPanel from "@/components/dashboard/PreviewPanel";
-import WebContainersPreview from "@/components/dashboard/WebContainersPreview";
-import FeedbackChat from "@/components/dashboard/FeedbackChat";
-import {
-  CheckCircle2,
-  Circle,
-  XCircle,
-  Loader2,
-  GitPullRequest,
-  Lock,
-  GitBranch,
-  ChevronsUpDown,
-} from "lucide-react";
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { Drawer, DrawerContent, DrawerTitle } from "@/components/ui/drawer";
+import Sidebar from "@/components/dashboard/Sidebar";
+import TopNav from "@/components/dashboard/TopNav";
+import ChatInterface from "@/components/dashboard/ChatInterface";
+import ChatInput from "@/components/dashboard/ChatInput";
+import RightPanel from "@/components/dashboard/RightPanel";
 
 const TERMINAL_STATUSES = ["shipped", "pr_opened", "failed", "cancelled"];
-const STATUS_ORDER = ["queued", "planning", "building", "qa", "preview", "review", "pr_opened", "shipped"];
 
-const STATUS_BADGE = {
-  queued: "QUEUED",
-  planning: "RUNNING",
-  building: "RUNNING",
-  qa: "QA",
-  preview: "REVIEW",
-  review: "REVIEW",
-  pr_opened: "DONE",
-  shipped: "DONE",
-  failed: "FAILED",
-  cancelled: "FAILED",
+const STATUS_LABEL = {
+  queued: "Queued",
+  planning: "Planning",
+  building: "Building",
+  qa: "Running QA",
+  preview: "Preparing preview",
+  review: "Awaiting review",
+  pr_opened: "Pull request opened",
+  shipped: "Shipped",
+  failed: "Failed",
+  cancelled: "Cancelled",
 };
 
-const PHASES = [
-  { label: "Plan", statuses: ["planning"] },
-  { label: "Build", statuses: ["building"] },
-  { label: "QA", statuses: ["qa"] },
-  { label: "Preview", statuses: ["preview"] },
-  { label: "Review", statuses: ["review"] },
-  { label: "Ship", statuses: ["pr_opened", "shipped"] },
-];
+function statusMessageFor(job) {
+  const label = STATUS_LABEL[job.status] || job.status;
+  let text = `**Status:** ${label}`;
+  if (job.job_logs) {
+    text += `\n\n\`\`\`\n${job.job_logs.slice(-1500)}\n\`\`\``;
+  }
+  return text;
+}
 
-function phaseState(job, phase) {
-  if (!job) return "pending";
-  if (job.status === "failed" || job.status === "cancelled") return "pending";
-  const currentIndex = STATUS_ORDER.indexOf(job.status);
-  const phaseIndex = STATUS_ORDER.indexOf(phase.statuses[0]);
-  const phaseLastIndex = STATUS_ORDER.indexOf(phase.statuses[phase.statuses.length - 1]);
-  if (currentIndex > phaseLastIndex) return "complete";
-  if (currentIndex >= phaseIndex && currentIndex <= phaseLastIndex) return "active";
-  return "pending";
+function finalMessageFor(job) {
+  if (job.status === "failed" || job.status === "cancelled") {
+    return `**Status:** Failed${job.error_message ? ` — ${job.error_message}` : ""}`;
+  }
+  let text = "**Status:** Done — your changes are ready.";
+  if (job.pr_url) text += `\n\n[View Pull Request](${job.pr_url})`;
+  return text;
+}
+
+function repoFullNameFromUrl(repoUrl) {
+  try {
+    const url = new URL(repoUrl);
+    return url.pathname.replace(/^\/+/, "").replace(/\.git$/, "");
+  } catch {
+    return null;
+  }
+}
+
+function useResponsiveTier() {
+  const getTier = () => {
+    if (typeof window === "undefined") return "desktop";
+    const w = window.innerWidth;
+    if (w < 768) return "mobile";
+    if (w < 1200) return "tablet";
+    return "desktop";
+  };
+  const [tier, setTier] = useState(getTier);
+  useEffect(() => {
+    const onResize = () => setTier(getTier());
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  return tier;
 }
 
 export default function Dashboard() {
   const location = useLocation();
   const isNewJob = location.search.includes("new=true");
+  const tier = useResponsiveTier();
+  const isMobile = tier === "mobile";
 
-  const [selectedRepo, setSelectedRepo] = useState(null); // { full_name, name, private, default_branch }
+  const [selectedRepo, setSelectedRepo] = useState(null);
   const [selectedBranch, setSelectedBranch] = useState("");
   const [repos, setRepos] = useState([]);
   const [branches, setBranches] = useState([]);
   const [reposLoading, setReposLoading] = useState(false);
   const [branchesLoading, setBranchesLoading] = useState(false);
-  const [reposError, setReposError] = useState(null);
   const [branchesError, setBranchesError] = useState(null);
-  const [repoPopoverOpen, setRepoPopoverOpen] = useState(false);
 
-  const [prompt, setPrompt] = useState("");
+  const [promptValue, setPromptValue] = useState("");
+  const [attachments, setAttachments] = useState([]);
   const [provider, setProvider] = useState("mock");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isThinking, setIsThinking] = useState(false);
   const [submitError, setSubmitError] = useState(null);
+  const [messages, setMessages] = useState([]);
 
   const [activeJob, setActiveJob] = useState(null);
   const pollRef = useRef(null);
-  const logRef = useRef(null);
+  const nextMessageIdRef = useRef(0);
+  const prevRepoRef = useRef(null);
 
-  const [previewData, setPreviewData] = useState(null); // { previewUrl, status, lastUpdated }
+  const [previewData, setPreviewData] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState(null);
+  const [previewSource, setPreviewSource] = useState("repo");
+  const [rightPanelTab, setRightPanelTab] = useState("files");
+  const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // "repo": instant WebContainers preview of the selected repo/branch.
-  // "job": Blair's job-specific Railway preview. Both stay mounted; this
-  // just controls which one is visible so switching tabs doesn't restart
-  // the WebContainers boot.
-  const [previewTab, setPreviewTab] = useState("repo");
   const [repoOwner, repoName] = selectedRepo ? selectedRepo.full_name.split("/") : [null, null];
+
+  const newMessageId = (prefix) => {
+    nextMessageIdRef.current += 1;
+    return `${prefix}-${nextMessageIdRef.current}`;
+  };
 
   const fetchPreview = useCallback(async (jobId) => {
     if (!jobId) return;
@@ -114,16 +134,22 @@ export default function Dashboard() {
   };
 
   const pollJob = useCallback(
-    (id) => {
+    (id, msgId) => {
       clearPoll();
       pollRef.current = setInterval(async () => {
         try {
           const job = await BlairAPI.getJob(id);
           setActiveJob(job);
           fetchPreview(id);
-          if (TERMINAL_STATUSES.includes(job.status)) {
-            clearPoll();
-          }
+          const terminal = TERMINAL_STATUSES.includes(job.status);
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === msgId
+                ? { ...m, content: terminal ? finalMessageFor(job) : statusMessageFor(job), isStreaming: !terminal }
+                : m
+            )
+          );
+          if (terminal) clearPoll();
         } catch {
           clearPoll();
         }
@@ -132,26 +158,32 @@ export default function Dashboard() {
     [fetchPreview]
   );
 
+  // Restore the most recent job on load so the Dashboard isn't blank, unless
+  // the user explicitly asked for a fresh one via "New Job" (?new=true).
   useEffect(() => {
     if (isNewJob) {
       setActiveJob(null);
       setPreviewData(null);
       setPreviewError(null);
+      setMessages([]);
       return;
     }
-    // Load the most recent job, if any, so Dashboard isn't blank on load.
     (async () => {
       try {
         const jobs = await BlairAPI.listJobs();
         if (jobs && jobs.length > 0) {
-          setActiveJob(jobs[0]);
-          fetchPreview(jobs[0].id);
-          if (!TERMINAL_STATUSES.includes(jobs[0].status)) {
-            pollJob(jobs[0].id);
-          }
+          const job = jobs[0];
+          setActiveJob(job);
+          fetchPreview(job.id);
+          const terminal = TERMINAL_STATUSES.includes(job.status);
+          const msgId = newMessageId("assistant");
+          setMessages([
+            { id: msgId, role: "assistant", content: terminal ? finalMessageFor(job) : statusMessageFor(job), isStreaming: !terminal },
+          ]);
+          if (!terminal) pollJob(job.id, msgId);
         }
       } catch {
-        // Server may be offline — leave the panel empty.
+        // Server may be offline — leave the chat empty.
       }
     })();
     return clearPoll;
@@ -159,22 +191,14 @@ export default function Dashboard() {
   }, [isNewJob]);
 
   useEffect(() => {
-    if (logRef.current) {
-      logRef.current.scrollTop = logRef.current.scrollHeight;
-    }
-  }, [activeJob?.job_logs]);
-
-  // Load the repo list once on mount.
-  useEffect(() => {
     let cancelled = false;
     (async () => {
       setReposLoading(true);
-      setReposError(null);
       try {
         const data = await BlairAPI.listRepos();
         if (!cancelled) setRepos(data);
-      } catch (err) {
-        if (!cancelled) setReposError(err.message);
+      } catch {
+        // Repo list failure surfaces via the Sidebar's own empty state.
       } finally {
         if (!cancelled) setReposLoading(false);
       }
@@ -184,15 +208,38 @@ export default function Dashboard() {
     };
   }, []);
 
-  // Load branches whenever the selected repo changes, auto-selecting the default branch.
+  // Once repos are loaded, try to preselect the repo behind the restored job.
+  useEffect(() => {
+    if (selectedRepo || !activeJob || repos.length === 0) return;
+    const fullName = repoFullNameFromUrl(activeJob.repo_url);
+    const match = repos.find((r) => r.full_name === fullName);
+    if (match) setSelectedRepo(match);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [repos, activeJob]);
+
+  // Load branches whenever the selected repo changes. Switching to a
+  // *different* repo starts a fresh conversation; the first assignment
+  // (manual pick, or restoring the previous job's repo) does not.
   useEffect(() => {
     if (!selectedRepo) {
       setBranches([]);
       setSelectedBranch("");
       return;
     }
+    const isRepoSwitch = prevRepoRef.current && prevRepoRef.current !== selectedRepo.full_name;
+    prevRepoRef.current = selectedRepo.full_name;
+    if (isRepoSwitch) {
+      clearPoll();
+      setMessages([]);
+      setActiveJob(null);
+      setPreviewData(null);
+      setPreviewError(null);
+      setSubmitError(null);
+      setRightPanelTab("files");
+      setPreviewSource("repo");
+    }
+
     let cancelled = false;
-    setPreviewTab("repo"); // jump straight to the instant live preview for the newly selected repo
     setSelectedBranch("");
     setBranches([]);
     setBranchesError(null);
@@ -216,324 +263,174 @@ export default function Dashboard() {
     };
   }, [selectedRepo]);
 
-  const canSubmit =
-    !!selectedRepo && !!selectedBranch && !!prompt.trim() && prompt.trim().length >= 10 && !isSubmitting;
+  const jobRunning = !!activeJob && !TERMINAL_STATUSES.includes(activeJob.status);
+  const inputDisabled = isSubmitting || jobRunning || !selectedRepo || !selectedBranch;
 
-  const runBlair = async () => {
-    if (!canSubmit) {
-      setSubmitError("Repository, branch, and a prompt of at least 10 characters are required.");
+  const placeholder = !selectedRepo
+    ? "Select a repository to get started..."
+    : jobRunning
+    ? "Blair is working on your last request..."
+    : "Describe what you want to build...";
+
+  const handleSend = async () => {
+    const text = promptValue.trim();
+    if (!text) return;
+    if (!selectedRepo || !selectedBranch) {
+      setSubmitError("Select a repository and branch first.");
+      return;
+    }
+    if (text.length < 10) {
+      setSubmitError("Describe what you want in at least 10 characters.");
       return;
     }
     setSubmitError(null);
+
+    const attachmentNote = attachments.length ? `\n\n_Attached: ${attachments.map((f) => f.name).join(", ")}_` : "";
+    setMessages((prev) => [...prev, { id: newMessageId("user"), role: "user", content: text + attachmentNote }]);
+    setPromptValue("");
+    setAttachments([]);
     setIsSubmitting(true);
+    setIsThinking(true);
+
     try {
       const { id } = await BlairAPI.submitJob({
         repoUrl: `https://github.com/${selectedRepo.full_name}`,
         baseBranch: selectedBranch,
-        prompt,
+        prompt: text,
         provider,
       });
       const job = await BlairAPI.getJob(id);
       setActiveJob(job);
       setPreviewData(null);
-      setPreviewTab("job");
+      setPreviewSource("job");
+      setRightPanelTab("preview");
       fetchPreview(id);
-      pollJob(id);
+
+      const msgId = newMessageId("assistant");
+      setMessages((prev) => [...prev, { id: msgId, role: "assistant", content: statusMessageFor(job), isStreaming: true }]);
+      pollJob(id, msgId);
     } catch (err) {
       setSubmitError(err.message);
+      setMessages((prev) => [
+        ...prev,
+        { id: newMessageId("assistant"), role: "assistant", content: `Sorry — I couldn't start that job: ${err.message}` },
+      ]);
+    } finally {
+      setIsSubmitting(false);
+      setIsThinking(false);
     }
-    setIsSubmitting(false);
+  };
+
+  const handleTopTabChange = (key) => {
+    if (key === "dashboard") {
+      setMobilePanelOpen(false);
+    } else {
+      setRightPanelTab(key);
+      if (isMobile) setMobilePanelOpen(true);
+    }
+  };
+
+  const chatColumn = (
+    <div className="flex flex-col h-full min-h-0 bg-blair-bg">
+      <ChatInterface messages={messages} isThinking={isThinking} />
+      {submitError && <p className="px-4 pb-1 text-xs text-red-500 shrink-0">{submitError}</p>}
+      <div className="flex items-center gap-2 px-4 pt-2 shrink-0">
+        <span className="text-[11px] text-blair-muted">Provider</span>
+        <Select value={provider} onValueChange={setProvider}>
+          <SelectTrigger className="h-7 w-28 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="mock">Mock</SelectItem>
+            <SelectItem value="openai">OpenAI</SelectItem>
+            <SelectItem value="anthropic">Anthropic</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <ChatInput
+        value={promptValue}
+        onChange={setPromptValue}
+        onSend={handleSend}
+        disabled={inputDisabled}
+        placeholder={placeholder}
+        attachments={attachments}
+        onAttach={(files) => setAttachments((prev) => [...prev, ...files])}
+        onRemoveAttachment={(i) => setAttachments((prev) => prev.filter((_, idx) => idx !== i))}
+      />
+    </div>
+  );
+
+  const rightPanelProps = {
+    activeTab: rightPanelTab,
+    onTabChange: setRightPanelTab,
+    owner: repoOwner,
+    repoName,
+    branch: selectedBranch,
+    activeJob,
+    jobPreview: {
+      previewUrl: previewData?.previewUrl,
+      status: previewData?.status,
+      lastUpdated: previewData?.lastUpdated,
+      loading: previewLoading,
+      error: previewError,
+    },
+    onRefreshJobPreview: () => activeJob && fetchPreview(activeJob.id),
+    previewSource,
+    onPreviewSourceChange: setPreviewSource,
   };
 
   return (
-    <div className="p-8 grid grid-cols-1 lg:grid-cols-2 gap-8">
-      {/* Left column: submission, phase timeline, and in-Dashboard feedback chat */}
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-mono font-bold uppercase tracking-wide text-tfrs-text">
-            Job Submission
-          </h1>
-          <p className="text-sm text-tfrs-muted mt-1">
-            Define the repo, the branch, and what you want Blair to build.
-          </p>
-        </div>
+    <div className="flex h-screen w-full overflow-hidden bg-blair-bg text-blair-text">
+      {!isMobile && (
+        <Sidebar repos={repos} reposLoading={reposLoading} selectedRepo={selectedRepo} onSelectRepo={setSelectedRepo} tier={tier} />
+      )}
 
-        <div className="bg-tfrs-surface border border-tfrs-border p-6 space-y-5">
-          <div className="space-y-2">
-            <Label className="text-tfrs-muted text-xs font-mono uppercase flex items-center gap-2">
-              Repository
-              {reposLoading && <Loader2 className="w-3 h-3 animate-spin" />}
-            </Label>
-            <Popover open={repoPopoverOpen} onOpenChange={setRepoPopoverOpen}>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  role="combobox"
-                  aria-expanded={repoPopoverOpen}
-                  disabled={reposLoading || !!reposError}
-                  className={`w-full justify-between bg-tfrs-bg border-tfrs-border font-mono rounded-none hover:bg-tfrs-bg ${
-                    selectedRepo ? "text-tfrs-gold hover:text-tfrs-gold" : "text-tfrs-muted hover:text-tfrs-muted"
-                  }`}
-                >
-                  <span className="flex items-center gap-2 truncate">
-                    {selectedRepo ? (
-                      <>
-                        {selectedRepo.private && <Lock className="w-3 h-3 shrink-0" />}
-                        <span className="truncate">{selectedRepo.full_name}</span>
-                      </>
-                    ) : reposLoading ? (
-                      "Loading repositories..."
-                    ) : (
-                      "Select repository..."
-                    )}
-                  </span>
-                  <ChevronsUpDown className="w-4 h-4 shrink-0 opacity-50" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-[--radix-popover-trigger-width] p-0 bg-tfrs-bg border-tfrs-border rounded-none">
-                <Command className="bg-tfrs-bg rounded-none">
-                  <CommandInput placeholder="Search repositories..." className="font-mono text-tfrs-text" />
-                  <CommandList>
-                    <CommandEmpty className="py-4 text-center font-mono text-sm text-tfrs-muted">
-                      No repositories found.
-                    </CommandEmpty>
-                    <CommandGroup>
-                      {repos.map((r) => (
-                        <CommandItem
-                          key={r.full_name}
-                          value={r.full_name}
-                          onSelect={() => {
-                            setSelectedRepo(r);
-                            setRepoPopoverOpen(false);
-                          }}
-                          className="font-mono text-sm text-tfrs-text rounded-none data-[selected=true]:bg-tfrs-surface data-[selected=true]:text-tfrs-gold"
-                        >
-                          {r.private && <Lock className="w-3 h-3 mr-2 shrink-0" />}
-                          {r.full_name}
-                        </CommandItem>
-                      ))}
-                    </CommandGroup>
-                  </CommandList>
-                </Command>
-              </PopoverContent>
-            </Popover>
-            {reposError && (
-              <p className="text-xs font-mono text-tfrs-red">Failed to load repos — check GITHUB_TOKEN</p>
-            )}
-          </div>
-
-          <div className="space-y-2">
-            <Label className="text-tfrs-muted text-xs font-mono uppercase flex items-center gap-2">
-              Base Branch
-              {branchesLoading && <Loader2 className="w-3 h-3 animate-spin" />}
-            </Label>
-            <Select
-              value={selectedBranch}
-              onValueChange={setSelectedBranch}
-              disabled={!selectedRepo || branchesLoading || !!branchesError}
-            >
-              <SelectTrigger
-                className={`bg-tfrs-bg border-tfrs-border font-mono rounded-none ${
-                  selectedBranch ? "text-tfrs-gold" : "text-tfrs-muted"
-                }`}
-              >
-                <SelectValue
-                  placeholder={
-                    !selectedRepo
-                      ? "Select a repository first"
-                      : branchesLoading
-                      ? "Loading branches..."
-                      : "Select branch..."
-                  }
-                />
-              </SelectTrigger>
-              <SelectContent className="bg-tfrs-bg border-tfrs-border rounded-none">
-                {branches.map((b) => (
-                  <SelectItem
-                    key={b.name}
-                    value={b.name}
-                    className="font-mono text-sm text-tfrs-text rounded-none focus:bg-tfrs-surface focus:text-tfrs-gold"
-                  >
-                    <span className="flex items-center gap-2">
-                      <GitBranch className="w-3 h-3" />
-                      {b.name}
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {branchesError && (
-              <p className="text-xs font-mono text-tfrs-red">Failed to load branches — {branchesError}</p>
-            )}
-          </div>
-
-          <div className="space-y-2">
-            <Label className="text-tfrs-muted text-xs font-mono uppercase">Prompt</Label>
-            <Textarea
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              placeholder="Describe what you want Blair to build..."
-              rows={8}
-              className="bg-tfrs-bg border-tfrs-border text-tfrs-text font-mono text-sm"
+      {isMobile && (
+        <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+          <SheetContent side="left" className="p-0 w-72">
+            <SheetTitle className="sr-only">Navigation</SheetTitle>
+            <Sidebar
+              repos={repos}
+              reposLoading={reposLoading}
+              selectedRepo={selectedRepo}
+              onSelectRepo={setSelectedRepo}
+              forceExpanded
             />
-          </div>
+          </SheetContent>
+        </Sheet>
+      )}
 
-          <div className="space-y-2">
-            <Label className="text-tfrs-muted text-xs font-mono uppercase">Provider</Label>
-            <Select value={provider} onValueChange={setProvider}>
-              <SelectTrigger className="bg-tfrs-bg border-tfrs-border text-tfrs-text font-mono">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="mock">Mock</SelectItem>
-                <SelectItem value="openai">OpenAI</SelectItem>
-                <SelectItem value="anthropic">Anthropic</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+      <div className="flex-1 flex flex-col min-w-0">
+        <TopNav
+          repo={selectedRepo}
+          branch={selectedBranch}
+          activeTab={isMobile ? (mobilePanelOpen ? rightPanelTab : "dashboard") : rightPanelTab}
+          onTabChange={handleTopTabChange}
+          showMenuButton={isMobile}
+          onOpenMenu={() => setMobileMenuOpen(true)}
+        />
 
-          {submitError && (
-            <p className="text-sm text-tfrs-red font-mono">{submitError}</p>
-          )}
-
-          <Button
-            onClick={runBlair}
-            disabled={!canSubmit}
-            className="w-full bg-tfrs-red hover:bg-tfrs-red/90 text-tfrs-text font-mono uppercase tracking-wide py-6 rounded-none"
-          >
-            {isSubmitting ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Submitting...
-              </>
-            ) : (
-              "Run Blair"
-            )}
-          </Button>
-        </div>
-
-        {/* Status Panel */}
-        <div>
-          <h1 className="text-2xl font-mono font-bold uppercase tracking-wide text-tfrs-text">
-            Job Status
-          </h1>
-          <p className="text-sm text-tfrs-muted mt-1">Live pipeline progress.</p>
-        </div>
-
-        {!activeJob ? (
-          <div className="bg-tfrs-surface border border-tfrs-border p-12 text-center text-tfrs-muted font-mono text-sm">
-            No active job. Submit a job to see live status here.
-          </div>
+        {isMobile ? (
+          <>
+            {chatColumn}
+            <Drawer open={mobilePanelOpen} onOpenChange={setMobilePanelOpen}>
+              <DrawerContent className="h-[85vh]">
+                <DrawerTitle className="sr-only">Files &amp; Preview</DrawerTitle>
+                <RightPanel {...rightPanelProps} />
+              </DrawerContent>
+            </Drawer>
+          </>
         ) : (
-          <div className="bg-tfrs-surface border border-tfrs-border p-6 space-y-6">
-            <div className="flex items-center justify-between">
-              <span className="font-mono text-xs text-tfrs-muted truncate">{activeJob.id}</span>
-              <Badge className="bg-tfrs-red text-tfrs-text border-none rounded-none font-mono">
-                {STATUS_BADGE[activeJob.status] || activeJob.status?.toUpperCase()}
-              </Badge>
-            </div>
-
-            {/* Phase Timeline */}
-            <div className="space-y-3">
-              {PHASES.map((phase) => {
-                const state = phaseState(activeJob, phase);
-                return (
-                  <div key={phase.label} className="flex items-center gap-3">
-                    {state === "complete" && <CheckCircle2 className="w-4 h-4 text-tfrs-gold" />}
-                    {state === "active" && <Loader2 className="w-4 h-4 text-tfrs-red animate-spin" />}
-                    {state === "pending" && <Circle className="w-4 h-4 text-tfrs-muted" />}
-                    <span className={`text-sm font-mono uppercase ${state === "pending" ? "text-tfrs-muted" : "text-tfrs-text"}`}>
-                      {phase.label}
-                    </span>
-                  </div>
-                );
-              })}
-              {activeJob.status === "failed" && (
-                <div className="flex items-center gap-3">
-                  <XCircle className="w-4 h-4 text-tfrs-red" />
-                  <span className="text-sm font-mono uppercase text-tfrs-red">
-                    Failed{activeJob.error_message ? `: ${activeJob.error_message}` : ""}
-                  </span>
-                </div>
-              )}
-            </div>
-
-            {/* Output Log */}
-            <div>
-              <Label className="text-tfrs-muted text-xs font-mono uppercase mb-2 block">Output Log</Label>
-              <div
-                ref={logRef}
-                className="bg-black/40 border border-tfrs-border p-3 h-56 overflow-y-auto font-mono text-xs text-tfrs-text whitespace-pre-wrap"
-              >
-                {activeJob.job_logs || "Waiting for output..."}
-              </div>
-            </div>
-
-            <div className="flex gap-3">
-              {activeJob.pr_url && (
-                <a href={activeJob.pr_url} target="_blank" rel="noreferrer" className="flex-1">
-                  <Button variant="outline" className="w-full border-tfrs-border text-tfrs-text font-mono uppercase rounded-none">
-                    <GitPullRequest className="w-4 h-4 mr-2" />
-                    Pull Request
-                  </Button>
-                </a>
-              )}
-            </div>
-          </div>
+          <ResizablePanelGroup direction={tier === "tablet" ? "vertical" : "horizontal"} className="flex-1 min-h-0">
+            <ResizablePanel defaultSize={62} minSize={30}>
+              {chatColumn}
+            </ResizablePanel>
+            <ResizableHandle withHandle />
+            <ResizablePanel defaultSize={38} minSize={22}>
+              <RightPanel {...rightPanelProps} />
+            </ResizablePanel>
+          </ResizablePanelGroup>
         )}
-
-        <FeedbackChat provider={provider} />
-      </div>
-
-      {/* Right column: instant repo preview + job-specific preview, toggled by tab */}
-      <div className="space-y-6">
-        <div className="flex items-end justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-mono font-bold uppercase tracking-wide text-tfrs-text">
-              Live Preview
-            </h1>
-            <p className="text-sm text-tfrs-muted mt-1">
-              {previewTab === "repo"
-                ? "Instant, in-browser preview of the selected repo — no deploy required."
-                : "Real-time rendering of the generated app as Blair builds it."}
-            </p>
-          </div>
-          <div className="flex border border-tfrs-border shrink-0">
-            <button
-              type="button"
-              onClick={() => setPreviewTab("repo")}
-              className={`px-3 py-2 font-mono uppercase text-xs ${
-                previewTab === "repo" ? "bg-tfrs-red text-tfrs-text" : "text-tfrs-muted hover:text-tfrs-text"
-              }`}
-            >
-              Live Repo
-            </button>
-            <button
-              type="button"
-              onClick={() => setPreviewTab("job")}
-              className={`px-3 py-2 font-mono uppercase text-xs border-l border-tfrs-border ${
-                previewTab === "job" ? "bg-tfrs-red text-tfrs-text" : "text-tfrs-muted hover:text-tfrs-text"
-              }`}
-            >
-              Job Preview
-            </button>
-          </div>
-        </div>
-
-        <div className={previewTab === "repo" ? "" : "hidden"}>
-          <WebContainersPreview owner={repoOwner} repo={repoName} branch={selectedBranch} />
-        </div>
-        <div className={previewTab === "job" ? "" : "hidden"}>
-          <PreviewPanel
-            hasJob={!!activeJob}
-            previewUrl={previewData?.previewUrl}
-            status={previewData?.status}
-            lastUpdated={previewData?.lastUpdated}
-            loading={previewLoading}
-            error={previewError}
-            onRefresh={() => activeJob && fetchPreview(activeJob.id)}
-          />
-        </div>
       </div>
     </div>
   );

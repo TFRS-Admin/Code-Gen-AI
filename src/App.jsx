@@ -15,8 +15,11 @@ function App() {
     <QueryClientProvider client={queryClientInstance}>
       <Router>
         <Routes>
-          <Route path="/" element={<Layout currentPageName="Dashboard"><Dashboard /></Layout>} />
-          <Route path="/Dashboard" element={<Layout currentPageName="Dashboard"><Dashboard /></Layout>} />
+          {/* Dashboard renders its own full-screen Base44-pattern shell
+              (sidebar + top nav), so it deliberately skips the tactical
+              Layout wrapper used by the rest of the app. */}
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/Dashboard" element={<Dashboard />} />
           <Route path="/Projects" element={<Layout currentPageName="Projects"><Projects /></Layout>} />
           <Route path="/Assistant" element={<Layout currentPageName="Assistant"><Assistant /></Layout>} />
           <Route path="/Settings" element={<Layout currentPageName="Settings"><Settings /></Layout>} />
