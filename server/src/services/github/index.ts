@@ -6,6 +6,7 @@
  * through the GitHub REST API rather than local git commands.
  */
 
+import { Octokit } from '@octokit/rest';
 import { checkGithubToken } from '../../config';
 
 let octokitClient: any = null;
@@ -18,8 +19,6 @@ function tokenSignature(token: string): string {
 
 /**
  * Lazily constructs the Octokit client, authenticated with GITHUB_TOKEN.
- * @octokit/rest is ESM-only, so it is loaded via dynamic import from this
- * CommonJS module.
  *
  * The token is validated on every call rather than trusting an indefinitely
  * cached client: if GITHUB_TOKEN is missing we fail with a clear error every
@@ -40,7 +39,6 @@ async function getClient(): Promise<any> {
     return octokitClient;
   }
 
-  const { Octokit } = await import('@octokit/rest');
   octokitClient = new Octokit({ auth: token });
   cachedTokenSignature = signature;
   return octokitClient;
