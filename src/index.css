@@ -11,6 +11,19 @@
   --tfrs-border: #1f2937;
   --tfrs-text: #f9fafb;
   --tfrs-muted: #6b7280;
+
+  /* Extended palette from docs/07-design-system.md, used by the harvester's
+     TFRS adapter (server/src/services/harvester/tfrs-adapter.ts) to target
+     real Tailwind utilities for tokens the original palette above doesn't
+     cover (elevated surfaces, secondary borders, semantic status colors). */
+  --tfrs-elevated: #0d1520;
+  --tfrs-surface-2: #182536;
+  --tfrs-border-strong: #3b526f;
+  --tfrs-red-bright: #ef1d2d;
+  --tfrs-steel: #7f93ad;
+  --tfrs-ink: #e6edf6;
+  --tfrs-success: #2fd17c;
+  --tfrs-warning: #f7b731;
 }
 
 /* Blair Dashboard — Base44-pattern design tokens (chat-first light theme) */

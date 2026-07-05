@@ -2,12 +2,13 @@ import React, { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { User } from "@/entities/User";
-import { LayoutDashboard, FilePlus2, History, Settings as SettingsIcon } from "lucide-react";
+import { LayoutDashboard, FilePlus2, History, Settings as SettingsIcon, LayoutGrid } from "lucide-react";
 
 const navigationItems = [
   { title: "Dashboard", url: createPageUrl("Dashboard"), icon: LayoutDashboard },
   { title: "New Job", url: createPageUrl("Dashboard") + "?new=true", icon: FilePlus2 },
   { title: "Job History", url: createPageUrl("Projects"), icon: History },
+  { title: "Harvester", url: createPageUrl("Harvester"), icon: LayoutGrid },
   { title: "Settings", url: createPageUrl("Settings"), icon: SettingsIcon },
 ];
 
@@ -36,6 +37,7 @@ export default function Sidebar() {
           if (item.title === "Dashboard") active = isOnDashboard && !isNewJob;
           else if (item.title === "New Job") active = isOnDashboard && isNewJob;
           else if (item.title === "Job History") active = location.pathname === "/Projects";
+          else if (item.title === "Harvester") active = location.pathname === "/Harvester";
           else if (item.title === "Settings") active = location.pathname === "/Settings";
           return (
             <Link
