@@ -3,6 +3,7 @@ import { getProvider } from '../providers';
 import { logEvent } from '../audit';
 import { BLAIR_SYSTEM_PROMPT } from '../blairPrompt';
 import * as github from '../github';
+import { config } from '../../config';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface JobInput {
@@ -21,6 +22,9 @@ interface GeneratedFile {
 const MAX_CONTEXT_FILES = 15;
 const MAX_FILE_LINES = 200;
 const MAX_OUTPUT_FILES = 10;
+
+const PREVIEW_POLL_INTERVAL_MS = 5000;
+const PREVIEW_POLL_TIMEOUT_MS = 120000; // 2 minutes
 
 const BUILD_STAGE_INSTRUCTIONS = `
 You are implementing a feature on a real GitHub repository.
@@ -138,6 +142,61 @@ function truncateContent(content: string, maxLines: number): string {
   const lines = content.split('\n');
   if (lines.length <= maxLines) return content;
   return lines.slice(0, maxLines).join('\n') + `\n... [truncated, ${lines.length - maxLines} more lines]`;
+}
+
+// Railway subdomains only allow lowercase alphanumerics and hyphens, so a
+// branch name like "feature/blair-a1b2c3d4" becomes "feature-blair-a1b2c3d4".
+function sanitizeBranchForRailway(branch: string): string {
+  return branch
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+/**
+ * Builds the expected Railway preview deploy URL for a feature branch, per
+ * Railway's built-in preview environment naming convention:
+ *   https://<branch-name>-<project-id>.railway.app
+ * Returns null if RAILWAY_PROJECT_ID isn't configured, in which case preview
+ * polling is skipped entirely (see runJobPipeline's PREVIEW step).
+ */
+export function buildPreviewUrl(branch: string): string | null {
+  const projectId = config.railway.projectId;
+  if (!projectId) return null;
+  return `https://${sanitizeBranchForRailway(branch)}-${projectId}.railway.app`;
+}
+
+export interface PollPreviewOptions {
+  intervalMs?: number;
+  timeoutMs?: number;
+  fetchImpl?: typeof fetch;
+  sleepImpl?: (ms: number) => Promise<void>;
+}
+
+/**
+ * Polls a Railway preview URL until it responds 200 OK, or gives up after
+ * timeoutMs. Network errors and non-200 responses (the deploy is still
+ * building) are treated the same — keep polling until the deadline.
+ * fetchImpl/sleepImpl are injectable so tests can run this without real
+ * network calls or real delays.
+ */
+export async function pollPreviewReady(url: string, opts: PollPreviewOptions = {}): Promise<boolean> {
+  const intervalMs = opts.intervalMs ?? PREVIEW_POLL_INTERVAL_MS;
+  const timeoutMs = opts.timeoutMs ?? PREVIEW_POLL_TIMEOUT_MS;
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  const sleepImpl = opts.sleepImpl ?? ((ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms)));
+
+  const maxAttempts = Math.max(1, Math.ceil(timeoutMs / intervalMs));
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      const res = await fetchImpl(url, { method: 'GET' });
+      if (res.status === 200) return true;
+    } catch {
+      // Not reachable yet (DNS not propagated, deploy still building) — keep polling.
+    }
+    if (attempt < maxAttempts - 1) await sleepImpl(intervalMs);
+  }
+  return false;
 }
 
 // Best-effort parse of the BUILD step's LLM response into a files[] + summary shape.
@@ -259,6 +318,16 @@ async function runJobPipeline(jobId: string): Promise<void> {
     }
   }
 
+  // Railway auto-deploys a preview environment for the new branch as soon as
+  // it exists on GitHub. Capture the expected preview URL now so the PREVIEW
+  // step can poll it once QA has finished.
+  const previewUrl = buildPreviewUrl(featureBranch);
+  if (previewUrl) {
+    await appendLog(jobId, `[BUILD] Expected Railway preview URL: ${previewUrl}`);
+  } else {
+    await appendLog(jobId, '[BUILD] RAILWAY_PROJECT_ID not configured — skipping preview URL.');
+  }
+
   await appendLog(jobId, '[BUILD] Committing files...');
   let committedCount = 0;
   for (const file of files) {
@@ -297,12 +366,28 @@ async function runJobPipeline(jobId: string): Promise<void> {
   await logEvent(jobId, 'job.qa.complete');
   await appendLog(jobId, '[QA] Complete.');
 
-  // ── Step 5: PREVIEW (placeholder) ──
+  // ── Step 5: PREVIEW ──
   await updateJobStatus(jobId, 'preview');
   await appendLog(jobId, '[PREVIEW] Preparing preview...');
-  // TODO(M2): Expose a live Vite dev server for the feature branch and set preview_url
-  await logEvent(jobId, 'job.preview.ready');
-  await appendLog(jobId, '[PREVIEW] Preview ready.');
+
+  if (previewUrl) {
+    await appendLog(jobId, `[PREVIEW] Waiting for Railway to deploy ${featureBranch}...`);
+    const ready = await pollPreviewReady(previewUrl);
+    if (ready) {
+      await query(
+        `UPDATE jobs SET preview_url = $1, preview_ready_at = NOW(), updated_at = NOW() WHERE id = $2`,
+        [previewUrl, jobId]
+      );
+      await logEvent(jobId, 'job.preview.ready', { previewUrl });
+      await appendLog(jobId, `[PREVIEW] Preview ready: ${previewUrl}`);
+    } else {
+      await logEvent(jobId, 'job.preview.timeout', { previewUrl });
+      await appendLog(jobId, `[PREVIEW] Timed out waiting for the preview to come up after 2 minutes.`);
+    }
+  } else {
+    await logEvent(jobId, 'job.preview.skipped');
+    await appendLog(jobId, '[PREVIEW] Skipped — no Railway project configured.');
+  }
 
   // ── Step 6: REVIEW ──
   await updateJobStatus(jobId, 'review');
