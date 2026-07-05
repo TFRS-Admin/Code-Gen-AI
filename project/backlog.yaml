@@ -173,8 +173,13 @@ epics:
       - id: TICKET-031
         title: "Persist component manifests"
         status: todo
-        evidence: []
-        note: "This is M3.3 in full — not started."
+        evidence: ["adr/0007-manifest-persistence-data-model.md"]
+        note: >
+          This is M3.3 in full — not started. Data-model target is now decided (ADR-0007,
+          Status: Proposed): additive component_manifests-style table keyed off
+          jobs(id)/plans(id), no full-ERD migration. Unblocked pending ADR acceptance
+          (see RISK-13 in project/risks.yaml). Must also resolve the manifestId/generationPlanId
+          ID-format gap (RISK-12) as part of implementation.
 
   - id: EPIC-7
     title: "Verification and export"

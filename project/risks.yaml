@@ -41,7 +41,10 @@ risks:
     repo_evidence: >
       contracts/component-manifest.schema.json defines a license field, but nothing persists
       manifests yet (M3.3 not started), so there is no license record for harvested components
-      today.
+      today. Data-model target for the persistence table is now decided
+      (adr/0007-manifest-persistence-data-model.md, Proposed): a lean, additive
+      component_manifests table keyed off jobs(id)/plans(id) — implementation still not
+      started.
 
   - id: RISK-4
     title: "TFRS drift"
@@ -141,3 +144,34 @@ risks:
       `git branch -a` at baseline time showed only `main` and short-lived `claude/*` branches
       on the remote — no `develop` branch exists, despite CLAUDE.md and
       docs/04-repository-contracts.md:116 specifying a `develop -> feature/*` workflow.
+
+  # ── New risks confirmed during the M3.3 manifest-persistence ADR audit (2026-07-05) ──
+  - id: RISK-12
+    title: "Manifest schema ID patterns do not match the running schema's raw UUID IDs"
+    source: "adr/0007-manifest-persistence-data-model.md"
+    probability: high
+    impact: medium
+    mitigation: >
+      Mint synthetic prefixed IDs (hc_<uuid> for manifestId, plan_<uuid> for generationPlanId)
+      at manifest-insert time, per adr/0007-manifest-persistence-data-model.md's Decision
+      section, rather than changing how jobs/plans primary keys work internally.
+    status: open
+    repo_evidence: >
+      contracts/component-manifest.schema.json:24-31 requires manifestId to match
+      ^hc_[A-Za-z0-9_-]+$ and generationPlanId to match ^plan_[A-Za-z0-9_-]+$, but
+      server/src/db/migrations/001_initial.sql:12,33 defines jobs.id and plans.id as raw
+      Postgres UUIDs with no application-level prefixing anywhere in
+      server/src/services/orchestrator/index.ts. This gap exists regardless of which data
+      model M3.3 builds on and must be closed by the M3.3 implementation.
+
+  - id: RISK-13
+    title: "ADR-0007 is Proposed, not yet Accepted — migration should not start on it as-is"
+    source: "adr/0007-manifest-persistence-data-model.md"
+    probability: medium
+    impact: medium
+    mitigation: "Get explicit owner (Blair) sign-off to flip ADR-0007's Status to Accepted before any M3.3 schema migration is written, per the task's quality bar (\"No schema migration until ADR is written and accepted\")."
+    status: open
+    repo_evidence: >
+      adr/0007-manifest-persistence-data-model.md's Status field is "Proposed". No migration
+      file for a manifest table exists in server/src/db/migrations/ as of this update — this
+      branch is documentation-only, per instruction.

@@ -9,6 +9,16 @@ was written against (`0e8b057`, branch `claude/code-gen-ai-baseline-blzoj2`). Wh
 does not provide direct evidence, the status is marked `unknown` or `needs-audit` rather than
 assumed.
 
+**Update (2026-07-05, M3.3 prep):** Open Question 2 (data-model target) is resolved by
+`adr/0007-manifest-persistence-data-model.md` (Status: Proposed) — M3.3 manifest persistence
+should build on the existing lean `jobs`/`plans`/`qa_runs` schema, adding a minimal
+`component_manifests`-style table, rather than migrating to the full ERD in
+`docs/10-data-model.md`. See §3 (M3.3), §10 (Open Question 2), and §11 below for the updated
+status; the full data-model migration is deferred until after M5 per the ADR. No product code
+or schema has been changed by this update — see the ADR for the recommended implementation
+shape and `project/active-sprint.yaml`/`project/backlog.yaml` for the resulting task
+breakdown.
+
 This document does not replace the design/spec suite in `docs/00-documentation-map.md` — it
 tracks *status and sequencing* against that suite, and records where the running code has
 diverged from it.
@@ -117,7 +127,7 @@ milestone state provided for this baseline plus repo evidence found during the a
 | M2 — Live Preview | **Complete** | Two working preview surfaces (WebContainers instant preview, Railway job preview) per ADR-0006. Supersedes the Sandpack plan in ADR-0002/docs/08 (§2.2.1). |
 | M3.1 — Registry | **Complete** | `server/src/services/harvester/registry.ts`, internal + Shadcn adapters, `registry_components` table, `/api/registry` route, `registry.test.ts` passing. |
 | M3.2 — Component Adaptation | **In progress** | `tfrs-adapter.ts` + `/api/adapt` route implement class-level TFRS adaptation and are unit-tested (`tfrs-adapter.test.ts`, `adapt.test.ts`). Not done: no scoring persistence, no `ComponentHarvester.jsx` end-to-end wiring audit performed, no manifest emitted (that's M3.3). |
-| M3.3 — Manifest Persistence | **Next (not started)** | `contracts/component-manifest.schema.json` exists; no table, service, or route produces or stores a manifest. |
+| M3.3 — Manifest Persistence | **Next (not started); data-model decided** | `contracts/component-manifest.schema.json` exists; no table, service, or route produces or stores a manifest. Data-model target resolved by `adr/0007-manifest-persistence-data-model.md` (Proposed): build on the lean schema, not the full ERD. |
 | M4 — Verification / Repair Loop | **Planned (not started)** | `qa_runs` table exists but is never written to; the orchestrator's QA step is a hard-coded placeholder (§2.2.4). No repair-from-failure code path exists. |
 | M5 — Review / Export / PR Workflow | **Planned (partially pre-built)** | A minimal review→approve→PR path already exists (`jobs.status = 'review'`, `POST /api/jobs/:id/approve` opens a PR — `server/src/services/orchestrator/index.ts:407-435`). Missing: reviewer checklist/`review_decisions`, ZIP/patch export, `export_jobs`, checksums, export approval guard. |
 | M6 — Production Hardening | **Planned (not started)** | No auth/role checks, rate limiting, or the rest of the `docs/11-security-threat-model.md:107-117` checklist found in `server/src`. |
@@ -233,10 +243,14 @@ Full register with probability/impact/mitigation in `project/risks.yaml`. Carrie
 1. Is `develop` supposed to exist as a real branch (per `CLAUDE.md` / `docs/04`), or should
    those docs be updated to say `main` is the integration branch? (§2.2.8) — **needs a decision
    from Blair/repo owner**, not resolved by this baseline.
-2. Is the simplified `jobs`/`plans`/`qa_runs` schema the intentional permanent data model, or is
-   the full ERD in `docs/10-data-model.md` still the target for M4+? This determines whether
-   M3.3/M4/M5 build on `jobs`/`plans` or introduce the originally-specified
-   `generation_requests`/`verification_runs`/`review_decisions`/`export_jobs` tables.
+2. ~~Is the simplified `jobs`/`plans`/`qa_runs` schema the intentional permanent data model, or is
+   the full ERD in `docs/10-data-model.md` still the target for M4+?~~ **Resolved** by
+   `adr/0007-manifest-persistence-data-model.md` (Status: Proposed): M3.3 (and, by the same
+   reasoning, M4/M5) build on the existing `jobs`/`plans`/`qa_runs` schema with additive
+   manifest table(s); the full ERD (`generation_requests`/`verification_runs`/
+   `review_decisions`/`export_jobs`/`users`/`projects`) is deferred until after M5 pending a
+   concrete M6+ requirement. Still needs sign-off from Blair/repo owner to move the ADR from
+   Proposed to Accepted before any migration is written.
 3. Should Sandpack still be built (per ADR-0002/docs/08), or should that ADR be superseded now
    that WebContainers + Railway preview are shipped and working? (§2.2.1)
 4. Is candidate scoring (`docs/06-component-harvester.md:49-65`, weighted 0-100 score) required
@@ -250,11 +264,13 @@ Full register with probability/impact/mitigation in `project/risks.yaml`. Carrie
 
 Recommended order for the next agent, most-blocking first:
 
-1. **Resolve Open Question 2** (data-model target) — this gates how M3.3 is built and avoids
-   throwaway schema work.
+1. ~~Resolve Open Question 2 (data-model target)~~ **Done** — see
+   `adr/0007-manifest-persistence-data-model.md`. Get the ADR moved from Proposed to Accepted
+   before starting step 3's migration.
 2. **M3.2 close-out**: audit `src/pages/ComponentHarvester.jsx` against `/api/registry` +
    `/api/adapt` to confirm the UI path is real end-to-end, not just the API/unit-test layer.
-3. **M3.3 Manifest Persistence**: add the manifest table(s) decided in step 1, a service that
+3. **M3.3 Manifest Persistence**: add the manifest table(s) per ADR-0007 (additive, keyed off
+   `plans(id)`/`jobs(id)`, no `users`/`projects`/`generation_requests`), a service that
    populates `contracts/component-manifest.schema.json`-shaped records from the
    `/api/adapt` flow, and tests mirroring the existing `adapt.test.ts`/`registry.test.ts`
    patterns.
@@ -263,7 +279,8 @@ Recommended order for the next agent, most-blocking first:
    persisted to `qa_runs`.
 5. Everything else in §5 (roadmap) in the order listed there.
 
-Concretely, the single highest-value next issue is **#3 (M3.3 Manifest Persistence)** once
-Open Question 2 is answered — it's explicitly called out as "next" in the assumed milestone
-state, has a schema contract already waiting (`contracts/component-manifest.schema.json`), and
-unblocks the M3 exit criteria in `docs/14-milestones.md:43-48` ("manifests validate").
+Concretely, the single highest-value next issue is **#3 (M3.3 Manifest Persistence)** now that
+Open Question 2 is answered (ADR-0007) — it's explicitly called out as "next" in the assumed
+milestone state, has a schema contract already waiting
+(`contracts/component-manifest.schema.json`), and unblocks the M3 exit criteria in
+`docs/14-milestones.md:43-48` ("manifests validate").

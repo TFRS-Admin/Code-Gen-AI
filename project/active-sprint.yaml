@@ -34,15 +34,21 @@ sprint:
     - id: SPR-3
       title: "Answer open question: data-model target for M3.3+ (lean jobs/plans schema vs. full ERD in docs/10-data-model.md)"
       milestone: M3.3
-      status: todo
-      blocks: [SPR-4]
+      status: done
+      evidence: ["adr/0007-manifest-persistence-data-model.md"]
+      note: >
+        Decided: build M3.3 on the existing lean jobs/plans/qa_runs schema (additive
+        component_manifests-style table); defer the full ERD until after M5. ADR Status is
+        currently "Proposed" — needs owner sign-off to "Accepted" before SPR-4's migration is
+        written (see RISK-13 in project/risks.yaml).
 
     - id: SPR-4
       title: "Design and land manifest persistence table(s)"
       milestone: M3.3
       status: todo
-      blocked_by: [SPR-3]
-      reference: "contracts/component-manifest.schema.json"
+      blocked_by: []
+      reference: "contracts/component-manifest.schema.json, adr/0007-manifest-persistence-data-model.md"
+      note: "Unblocked by SPR-3. Still pending ADR-0007 acceptance and the ID-format shim in RISK-12 before implementation starts."
 
     - id: SPR-5
       title: "Implement manifest-generation service and wire into /api/adapt"
