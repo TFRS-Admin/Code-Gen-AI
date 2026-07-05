@@ -2,53 +2,14 @@ import React from "react";
 import FileTree from "@/components/dashboard/FileTree";
 import WebContainersPreview from "@/components/dashboard/WebContainersPreview";
 import PreviewPanel from "@/components/dashboard/PreviewPanel";
-import { CheckCircle2, Circle, Loader2, XCircle, Files, MonitorPlay } from "lucide-react";
-
-const STATUS_ORDER = ["queued", "planning", "building", "qa", "preview", "review", "pr_opened", "shipped"];
-
-const PHASES = [
-  { label: "Plan", statuses: ["planning"] },
-  { label: "Build", statuses: ["building"] },
-  { label: "QA", statuses: ["qa"] },
-  { label: "Preview", statuses: ["preview"] },
-  { label: "Review", statuses: ["review"] },
-  { label: "Ship", statuses: ["pr_opened", "shipped"] },
-];
-
-function phaseState(job, phase) {
-  if (!job) return "pending";
-  if (job.status === "failed" || job.status === "cancelled") return "pending";
-  const currentIndex = STATUS_ORDER.indexOf(job.status);
-  const phaseIndex = STATUS_ORDER.indexOf(phase.statuses[0]);
-  const phaseLastIndex = STATUS_ORDER.indexOf(phase.statuses[phase.statuses.length - 1]);
-  if (currentIndex > phaseLastIndex) return "complete";
-  if (currentIndex >= phaseIndex && currentIndex <= phaseLastIndex) return "active";
-  return "pending";
-}
+import PhaseStrip from "@/components/dashboard/PhaseStrip";
+import { Files, MonitorPlay } from "lucide-react";
 
 function JobStatusStrip({ job }) {
   if (!job) return null;
   return (
-    <div className="flex items-center gap-3 px-3 py-2 border-b border-blair-border bg-blair-sidebar overflow-x-auto shrink-0">
-      {PHASES.map((phase) => {
-        const state = phaseState(job, phase);
-        return (
-          <div key={phase.label} className="flex items-center gap-1.5 shrink-0">
-            {state === "complete" && <CheckCircle2 className="w-3.5 h-3.5 text-blair-primary" />}
-            {state === "active" && <Loader2 className="w-3.5 h-3.5 text-blair-primary animate-spin" />}
-            {state === "pending" && <Circle className="w-3.5 h-3.5 text-blair-muted" />}
-            <span className={`text-[11px] font-medium ${state === "pending" ? "text-blair-muted" : "text-blair-text"}`}>
-              {phase.label}
-            </span>
-          </div>
-        );
-      })}
-      {job.status === "failed" && (
-        <div className="flex items-center gap-1.5 shrink-0 ml-auto">
-          <XCircle className="w-3.5 h-3.5 text-red-500" />
-          <span className="text-[11px] font-medium text-red-500">Failed</span>
-        </div>
-      )}
+    <div className="px-3 py-2 border-b border-blair-border bg-blair-sidebar overflow-x-auto shrink-0">
+      <PhaseStrip job={job} />
     </div>
   );
 }

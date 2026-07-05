@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { Sparkles, Copy, Check, Loader2 } from "lucide-react";
 import { highlightCode } from "./codeHighlight";
+import PhaseStrip from "./PhaseStrip";
 
 function CodeBlock({ language, code }) {
   const [copied, setCopied] = useState(false);
@@ -69,6 +70,18 @@ const markdownComponents = {
 
 function MessageBubble({ message }) {
   const isUser = message.role === "user";
+  const isSystem = message.role === "system";
+
+  if (isSystem) {
+    return (
+      <div className="flex justify-center">
+        <span className="px-3 py-1 rounded-full bg-blair-sidebar border border-blair-border text-[11px] text-blair-muted">
+          {message.content}
+        </span>
+      </div>
+    );
+  }
+
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
       <div
@@ -76,6 +89,7 @@ function MessageBubble({ message }) {
           isUser ? "blair-chat-bubble-user" : "blair-chat-bubble-ai"
         }`}
       >
+        {message.job && <PhaseStrip job={message.job} className="mb-2 pb-2 border-b border-blair-border/60" />}
         {isUser ? (
           <p className="whitespace-pre-wrap">{message.content}</p>
         ) : (

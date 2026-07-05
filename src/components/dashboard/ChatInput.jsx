@@ -1,6 +1,6 @@
 import React, { useRef } from "react";
 import { Button } from "@/components/ui/button";
-import { Bold, Italic, Code, Link2, Paperclip, Send, X } from "lucide-react";
+import { Bold, Italic, Code, Link2, Paperclip, Send, X, Loader2 } from "lucide-react";
 
 const MAX_HEIGHT_PX = 200;
 
@@ -31,6 +31,7 @@ export default function ChatInput({
   onChange,
   onSend,
   disabled = false,
+  sending = false,
   placeholder = "Describe what you want to build...",
   attachments = [],
   onAttach,
@@ -131,8 +132,17 @@ export default function ChatInput({
             size="sm"
             className="bg-blair-primary hover:bg-blair-primary-hover text-white rounded-full px-4"
           >
-            <Send className="w-3.5 h-3.5 mr-1.5" />
-            Send
+            {sending ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                Sending...
+              </>
+            ) : (
+              <>
+                <Send className="w-3.5 h-3.5 mr-1.5" />
+                Send
+              </>
+            )}
           </Button>
         </div>
       </div>
