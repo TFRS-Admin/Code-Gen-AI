@@ -15,9 +15,10 @@ sprint:
     end: needs-audit
   goal: >
     Close out M3.2 Component Adaptation and begin M3.3 Manifest Persistence. M3.3 is now
-    implemented (SPR-3 through SPR-6 done); M3.2's ComponentHarvester.jsx wiring audit
+    implemented (SPR-3 through SPR-6 done) and merged to main (PR #23). M4 Verification
+    Engine kickoff planning is done (SPR-7); M3.2's ComponentHarvester.jsx wiring audit
     (SPR-1) and candidate-scoring scope decision (SPR-2) remain open.
-  milestones_in_focus: [M3.2, M3.3]
+  milestones_in_focus: [M3.2, M3.3, M4]
 
   items:
     - id: SPR-1
@@ -72,6 +73,26 @@ sprint:
       evidence: ["server/src/services/harvester/manifest-store.test.ts", "server/src/routes/adapt.test.ts"]
       note: "75 server tests passing (up from 61 at baseline); covers manifest building, schema validation (valid + rejected cases), ID-prefix format, and a manifestToRow/rowToManifest round-trip."
 
+    - id: SPR-7
+      title: "M4 Verification Engine kickoff plan"
+      milestone: M4
+      status: done
+      evidence: ["docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md"]
+      note: >
+        Planning-only, on branch feature/m4-verification-engine-plan (no product code changed).
+        Scopes 4 incremental slices (sandbox spike + single check → all four checks → bounded
+        repair loop → observability polish). Key finding: no local checkout/sandbox execution
+        capability exists today (server/src/services/github/index.ts:1-7) — slice 1 must
+        establish that before any real check can run. qa_runs needs no schema change for
+        slices 1-2.
+
+    - id: SPR-8
+      title: "Implement M4 slice 1: sandbox spike + single-check execution"
+      milestone: M4
+      status: todo
+      blocked_by: [SPR-7]
+      reference: "docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md section 10"
+
   out_of_sprint_but_flagged:
-    - "M4 QA placeholder replacement (server/src/services/orchestrator/index.ts:357-367) — next sprint after M3.3."
+    - "M4 slices 2-4 (all checks, repair loop, observability polish) — sequenced after slice 1 lands, per docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md section 10."
     - "Plan-schema validation and provider_calls logging — cross-cutting, not scheduled to a milestone."

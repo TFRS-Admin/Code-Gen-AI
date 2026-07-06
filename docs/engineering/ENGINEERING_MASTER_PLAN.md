@@ -25,7 +25,17 @@ covering manifest construction, schema validation (accept + reject cases), ID-pr
 and a manifest↔row mapping round-trip. See §3 (M3.3), §10 (Open Questions 2 and 4), and §11
 below for the updated status, and `project/risks.yaml` RISK-14 for the one known, documented
 gap this introduces (the manifest `score` field is a fixed placeholder — candidate scoring,
-TICKET-029, is still not implemented).
+TICKET-029, is still not implemented). Merged to `main` via PR #23.
+
+**Update (2026-07-05, M4 kickoff planning):** `docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md`
+(branch `feature/m4-verification-engine-plan`, planning only — no product code changed) scopes
+M4 into 4 incremental slices. Key finding: `server/src/services/github/index.ts:1-7` confirms
+there is **no local checkout/sandbox execution capability today** — all repo operations go
+through the GitHub REST API, so M4 slice 1 must first establish a way to materialize a job's
+branch and run commands against it, before any real lint/build/typecheck/test check can run.
+`qa_runs`' existing schema needs no migration for slices 1-2. See `project/risks.yaml` RISK-15
+(the sandbox gap) and RISK-16 (must not fabricate a pass for a check a target repo doesn't
+define).
 
 This document does not replace the design/spec suite in `docs/00-documentation-map.md` — it
 tracks *status and sequencing* against that suite, and records where the running code has
@@ -111,12 +121,15 @@ roadmap and backlog:
    now builds a manifest per adaptation via `server/src/services/harvester/manifest-store.ts`
    and persists it to `component_manifests` (`server/src/db/migrations/005_component_manifests.sql`).
    See `adr/0007-manifest-persistence-data-model.md`.
-8. **Branching model mismatch.** `CLAUDE.md`, `docs/04-repository-contracts.md:116`, and the
-   Cursor rules all say work should branch from `develop`. The remote repository has no
-   `develop` branch — only `main` and short-lived `claude/*` feature branches
-   (`git branch -a`, confirmed at baseline time). Either `develop` needs to be created, or the
-   docs need to be updated to say `main`. Flagged as an open question below, not resolved by
-   this baseline.
+8. **Branching model mismatch — update (2026-07-05).** `CLAUDE.md`, `docs/04-repository-contracts.md:116`,
+   and the Cursor rules all say work should branch from `develop`. A `develop` branch now
+   exists on the remote (it did not at baseline time), but it is **not** the active integration
+   branch in practice: `git diff origin/main origin/develop --stat` shows 112 files and ~12,500
+   lines diverged, `develop`'s history ends at an early scaffold commit and contains none of
+   M0-M3.3's work, and `list_pull_requests` with `base:develop` returns zero results — every
+   merged PR (#14 through #23) targeted `main`. `main` is the de facto active integration
+   branch; `develop` is a stale, disconnected branch, not an alternative target. Still an open
+   decision below whether to delete/resync `develop` or keep both.
 9. **Vestigial frontend dependencies.** `@stripe/react-stripe-js`, `@stripe/stripe-js`, and
    `three` are declared in `package.json` but have zero references anywhere in `src/`
    (`grep -rl "stripe\|Stripe\|three\b" src` returns nothing). Likely carried over from a
@@ -176,10 +189,12 @@ form):
    `contracts/component-manifest.schema.json`, wired into the `/api/adapt` response path
    (`server/src/routes/adapt.ts`). Candidate scoring (previously item 1's open question) is
    still deferred — the manifest `score` field ships as a fixed placeholder (RISK-14).
-3. **M4 Verification / Repair Loop** — replace the QA placeholder with real
-   lint/build/typecheck/test execution against the sandboxed checkout, persist results to
-   `qa_runs`, and add a repair pass that feeds failures back to the provider
-   (`docs/08-live-preview-runtime.md:134-142` describes the intended loop).
+3. **M4 Verification / Repair Loop** — kickoff plan written
+   (`docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md`, 4 incremental slices). Not yet
+   implemented: replace the QA placeholder with real lint/build/typecheck/test execution,
+   persist results to `qa_runs`, and add a bounded repair pass that feeds failures back to the
+   provider (`docs/08-live-preview-runtime.md:134-142` describes the intended loop). Slice 1 is
+   a spike to establish a local execution sandbox, which does not exist today (RISK-15).
 4. **M5 Review / Export / PR Workflow** — formalize the review step (checklist, decision
    record), add ZIP/Git-patch export with checksums and an export-approval guard
    (`docs/12-testing-quality-gates.md:84-91`).
@@ -195,10 +210,12 @@ match the shipped architecture instead of the original target design.
 ## 6. Active sprint
 
 See `project/active-sprint.yaml` for the structured version. Summary: **M3.3 Manifest
-Persistence** is now implemented and its sprint items (SPR-3 through SPR-6) are done; **M3.2
-Component Adaptation** close-out (SPR-1 `ComponentHarvester.jsx` wiring audit, SPR-2 scoring
-scope decision) remains open. No sprint dates are asserted here (none found in the repo);
-`project/active-sprint.yaml` marks the window as `needs-audit`.
+Persistence** is implemented and merged to `main` (PR #23); its sprint items (SPR-3 through
+SPR-6) are done. **M4 Verification Engine** kickoff planning (SPR-7) is done; slice 1
+implementation (SPR-8) is next. **M3.2 Component Adaptation** close-out (SPR-1
+`ComponentHarvester.jsx` wiring audit, SPR-2 scoring scope decision) remains open. No sprint
+dates are asserted here (none found in the repo); `project/active-sprint.yaml` marks the window
+as `needs-audit`.
 
 ## 7. Verification gates
 
@@ -263,8 +280,14 @@ Full register with probability/impact/mitigation in `project/risks.yaml`. Carrie
 ## 10. Open questions
 
 1. Is `develop` supposed to exist as a real branch (per `CLAUDE.md` / `docs/04`), or should
-   those docs be updated to say `main` is the integration branch? (§2.2.8) — **needs a decision
-   from Blair/repo owner**, not resolved by this baseline.
+   those docs be updated to say `main` is the integration branch? (§2.2.8) — **strengthened
+   evidence (2026-07-05), still needs a decision from Blair/repo owner**: `develop` now exists
+   on the remote but has never been a PR target and is 112 files diverged from `main` with none
+   of M0-M3.3's work (§2.2.8). In practice `main` is the integration branch; the open decision
+   is whether to (a) update `CLAUDE.md`/`docs/04-repository-contracts.md` to say `main`, or
+   (b) resync/delete the stale `develop` branch and keep the documented `develop`-first
+   workflow going forward. This document and this session's PRs (#22, #23) all targeted `main`
+   pending that decision — not a unilateral resolution of it.
 2. ~~Is the simplified `jobs`/`plans`/`qa_runs` schema the intentional permanent data model, or is
    the full ERD in `docs/10-data-model.md` still the target for M4+?~~ **Resolved** by
    `adr/0007-manifest-persistence-data-model.md` (Status: **Accepted**): M3.3 (and, by the same
@@ -298,16 +321,18 @@ Recommended order for the next agent, most-blocking first:
 3. **M3.2 close-out**: audit `src/pages/ComponentHarvester.jsx` against `/api/registry` +
    `/api/adapt` to confirm the UI path is real end-to-end, not just the API/unit-test layer, and
    confirm whether it should be updated to surface the new `manifest` field in adapt responses.
-4. **M4 kickoff**: replace the QA placeholder (`server/src/services/orchestrator/index.ts:357-367`)
-   with real `lint`/`build`/`typecheck`/`test` execution against the sandboxed checkout,
-   persisted to `qa_runs`.
+4. ~~**M4 kickoff (planning)**~~ **Done** — see `docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md`.
+   **Next: implement M4 slice 1** (sandbox materialization spike + a single real check, per the
+   plan's §10) — replacing the QA placeholder (`server/src/services/orchestrator/index.ts:357-367`)
+   is now a scoped, sliced plan rather than an open-ended TODO.
 5. **Candidate scoring (TICKET-029)**: replace the fixed placeholder scores in
    `server/src/services/harvester/manifest-store.ts` with the weighted 0-100 model from
    `docs/06-component-harvester.md:49-65` (RISK-14) — not blocking, but the next natural
    improvement to M3.3's output quality.
 6. Everything else in §5 (roadmap) in the order listed there.
 
-Concretely, the single highest-value next issue is **#4 (M4 kickoff)** now that M3.3 is
-implemented — the orchestrator's QA step is still a hard-coded placeholder
-(`server/src/services/orchestrator/index.ts:357-367`) and is the next milestone-blocking gap
-per `docs/14-milestones.md`.
+Concretely, the single highest-value next issue is **M4 slice 1**
+(`docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md` §10) — the orchestrator's QA step is still a
+hard-coded placeholder (`server/src/services/orchestrator/index.ts:357-367`) and is the next
+milestone-blocking gap per `docs/14-milestones.md`; the plan is now written, so this is
+ready to implement rather than needing further scoping.

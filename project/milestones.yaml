@@ -174,7 +174,15 @@ milestones:
       ("[QA] Running lint...", etc.) and never executes real checks or writes to qa_runs.
       See server/src/services/orchestrator/index.ts:357-367, which contains an explicit
       TODO(M3) comment confirming this. qa_runs table has existed since 001_initial.sql but
-      has zero writers found in server/src.
+      has zero writers found in server/src. Kickoff planning complete (2026-07-05):
+      docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md, on branch
+      feature/m4-verification-engine-plan, scopes 4 incremental slices. Key finding from
+      planning: server/src/services/github/index.ts:1-7 confirms there is no local
+      checkout/sandbox execution capability today (Railway, no persistent filesystem, all repo
+      ops go through the GitHub REST API) — slice 1 must first establish a way to materialize a
+      job's branch and run commands against it before any real check can run. qa_runs' existing
+      schema needs no migration for slices 1-2. Status remains "planned" — no implementation
+      exists yet, only the plan.
 
   - id: M5
     name: "Review / Export / PR Workflow"

@@ -91,12 +91,17 @@ risks:
     source: "engineering-baseline-audit"
     probability: high
     impact: high
-    mitigation: "Implement M4 (real lint/build/typecheck/test execution + qa_runs persistence + repair loop)"
+    mitigation: >
+      Implement M4 per docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md (real lint/build/
+      typecheck/test execution + qa_runs persistence + bounded repair loop), in 4 incremental
+      slices.
     status: open
     repo_evidence: >
       server/src/services/orchestrator/index.ts:357-367 — the 'qa' phase only appends log
       lines and contains an explicit TODO(M3) comment; qa_runs table has zero writers found
-      in server/src. Jobs can reach 'review' status with no real verification signal.
+      in server/src. Jobs can reach 'review' status with no real verification signal. Kickoff
+      plan written (2026-07-05); implementation not started — see RISK-15 for the specific
+      blocking gap the plan surfaced.
 
   - id: RISK-8
     title: "No enforcement of the component dependency allowlist/disallow list at build time"
@@ -196,3 +201,42 @@ risks:
       REGISTRY_MATCH_PLACEHOLDER_SCORE = 100 and UNMATCHED_CUSTOM_PLACEHOLDER_SCORE = 0 with an
       explicit comment that these are not a computed signal — TICKET-029 (candidate scoring)
       remains status: todo in project/backlog.yaml.
+
+  # ── New risks from M4 kickoff planning (2026-07-05) ──
+  - id: RISK-15
+    title: "No local checkout/sandbox execution capability exists — M4 cannot 'just add a shell command'"
+    source: "docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md"
+    probability: high
+    impact: high
+    mitigation: >
+      M4 slice 1 (docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md section 10) is scoped as a
+      spike to resolve this first: materialize a job's feature branch locally (tarball download
+      via Octokit, or reconstruct from the existing getFileTree/getFileContent calls) and
+      confirm npm install + one script can run within a job's lifetime in the Railway
+      container, before any other M4 work proceeds.
+    status: open
+    repo_evidence: >
+      server/src/services/github/index.ts:1-7's own header comment: "The server runs on
+      Railway with no persistent filesystem, so all repository operations ... go through the
+      GitHub REST API rather than local git commands." The BUILD step never clones or
+      materializes the repo; server/nixpacks.toml only declares nodejs_20, with no `git` CLI
+      guaranteed present. The orchestrator's existing TODO(M3) comment ("run npm lint/build/
+      typecheck/test against the sandboxed checkout") assumes a sandbox that does not exist.
+
+  - id: RISK-16
+    title: "Verification engine must not fabricate pass/fail for checks a target repo doesn't define"
+    source: "docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md"
+    probability: medium
+    impact: high
+    mitigation: >
+      Detect available checks from the target repo's own package.json scripts (mirroring
+      WebContainersPreview.jsx's existing dev/start script detection) and record a missing
+      script as "not applicable" (null), never as a fabricated pass. See
+      docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md section 4-5 for the full failure model
+      (Passed / Failed / Errored).
+    status: open
+    repo_evidence: >
+      Blair operates on arbitrary connected repositories chosen via the repo/branch picker
+      (README.md:12-21), not just this monorepo, so a hardcoded `npm run typecheck` would
+      either fail on repos without that script or silently report false confidence if a
+      missing script were ever treated as an implicit pass.
