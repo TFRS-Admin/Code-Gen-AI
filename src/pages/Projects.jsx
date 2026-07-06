@@ -8,8 +8,9 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
-import { Eye, RotateCcw, ExternalLink, GitPullRequest } from "lucide-react";
+import { Eye, RotateCcw, GitPullRequest } from "lucide-react";
 import { format } from "date-fns";
+import PreviewPanel from "@/components/dashboard/PreviewPanel";
 
 const STATUS_BADGE = {
   queued: "QUEUED",
@@ -29,6 +30,9 @@ export default function Projects() {
   const [isLoading, setIsLoading] = useState(true);
   const [selectedJob, setSelectedJob] = useState(null);
   const [rerunningId, setRerunningId] = useState(null);
+  const [previewData, setPreviewData] = useState(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState(null);
 
   const loadJobs = useCallback(async () => {
     try {
@@ -46,7 +50,27 @@ export default function Projects() {
     return () => clearInterval(interval);
   }, [loadJobs]);
 
+  const fetchPreview = useCallback(async (jobId) => {
+    if (!jobId) return;
+    setPreviewLoading(true);
+    setPreviewError(null);
+    try {
+      const data = await BlairAPI.getPreview(jobId);
+      setPreviewData(data);
+    } catch (err) {
+      setPreviewError(err.message);
+    } finally {
+      setPreviewLoading(false);
+    }
+  }, []);
+
+  // Opening a prior job is "opening its preview": show the existing live
+  // preview UI immediately using whatever the API already has for it,
+  // rather than requiring a further click.
   const viewJob = async (job) => {
+    setPreviewData(null);
+    setPreviewError(null);
+    fetchPreview(job.id);
     try {
       const fresh = await BlairAPI.getJob(job.id);
       setSelectedJob(fresh);
@@ -129,6 +153,7 @@ export default function Projects() {
                         size="sm"
                         variant="ghost"
                         onClick={() => viewJob(job)}
+                        aria-label="View job"
                         className="text-tfrs-text hover:bg-black/30"
                       >
                         <Eye className="w-4 h-4" />
@@ -138,6 +163,7 @@ export default function Projects() {
                         variant="ghost"
                         onClick={() => rerunJob(job)}
                         disabled={rerunningId === job.id}
+                        aria-label="Re-run job"
                         className="text-tfrs-text hover:bg-black/30"
                       >
                         <RotateCcw className={`w-4 h-4 ${rerunningId === job.id ? "animate-spin" : ""}`} />
@@ -181,15 +207,17 @@ export default function Projects() {
                   </div>
                 </div>
 
+                <PreviewPanel
+                  hasJob
+                  previewUrl={previewData?.previewUrl}
+                  status={previewData?.status}
+                  lastUpdated={previewData?.lastUpdated}
+                  loading={previewLoading}
+                  error={previewError}
+                  onRefresh={() => fetchPreview(selectedJob.id)}
+                />
+
                 <div className="flex gap-3">
-                  {selectedJob.preview_url && (
-                    <a href={selectedJob.preview_url} target="_blank" rel="noreferrer" className="flex-1">
-                      <Button variant="outline" className="w-full border-tfrs-border text-tfrs-text font-mono uppercase rounded-none">
-                        <ExternalLink className="w-4 h-4 mr-2" />
-                        Preview
-                      </Button>
-                    </a>
-                  )}
                   {selectedJob.pr_url && (
                     <a href={selectedJob.pr_url} target="_blank" rel="noreferrer" className="flex-1">
                       <Button variant="outline" className="w-full border-tfrs-border text-tfrs-text font-mono uppercase rounded-none">
