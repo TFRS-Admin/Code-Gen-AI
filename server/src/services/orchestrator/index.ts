@@ -6,6 +6,9 @@ import * as github from '../github';
 import { config } from '../../config';
 import { v4 as uuidv4 } from 'uuid';
 import { runVerification } from '../verification/verify';
+import type { CheckName } from '../verification/checks';
+
+const CHECK_NAMES: CheckName[] = ['lint', 'build', 'typecheck', 'test'];
 
 export interface JobInput {
   repoUrl: string;
@@ -356,31 +359,44 @@ async function runJobPipeline(jobId: string): Promise<void> {
   await appendLog(jobId, `[BUILD] Complete. ${committedCount} files committed.`);
 
   // ── Step 4: QA ──
-  // M4 slice 1 (docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md): runs a real
-  // `lint` check against a materialized copy of the feature branch and
-  // persists one real qa_runs row. build/typecheck/tests are still TODO
-  // (slice 2). This slice does not gate the pipeline or repair anything —
-  // the job proceeds to PREVIEW regardless of the lint outcome, matching
-  // today's always-proceed behavior; gating and a bounded repair loop are
-  // scoped to slices 2-3.
+  // M4 slice 2 (docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md): runs every
+  // check the target repo defines (lint/build/typecheck/test) against a
+  // materialized copy of the feature branch and persists one real qa_runs
+  // row. Now gates the pipeline: a failed or errored check marks the job
+  // 'failed' and stops before PREVIEW/REVIEW; a skipped check never blocks
+  // it. Still no repair loop (slice 3).
   await updateJobStatus(jobId, 'qa');
   await logEvent(jobId, 'job.qa.started');
-  await appendLog(jobId, '[QA] Materializing workspace and checking for a lint script...');
+  await appendLog(jobId, '[QA] Materializing workspace and checking for available scripts...');
 
   const verification = await runVerification({ jobId, owner, repo, branch: featureBranch });
-  const { lint } = verification;
+  const { checks } = verification;
 
-  if (lint.outcome === 'skipped') {
-    await appendLog(jobId, '[QA] No lint script found in package.json — skipped.');
-  } else if (lint.outcome === 'passed') {
-    await appendLog(jobId, '[QA] Lint passed.');
-  } else if (lint.outcome === 'failed') {
-    await appendLog(jobId, '[QA] Lint failed.');
-  } else {
-    await appendLog(jobId, `[QA] Lint could not run: ${lint.output.slice(0, 500)}`);
+  for (const name of CHECK_NAMES) {
+    const result = checks[name];
+    if (result.outcome === 'skipped') {
+      await appendLog(jobId, `[QA] No ${name} script found in package.json — skipped.`);
+    } else if (result.outcome === 'passed') {
+      await appendLog(jobId, `[QA] ${name} passed.`);
+    } else if (result.outcome === 'failed') {
+      await appendLog(jobId, `[QA] ${name} failed.`);
+    } else {
+      await appendLog(jobId, `[QA] ${name} could not run: ${result.output.slice(0, 500)}`);
+    }
   }
 
-  await logEvent(jobId, 'job.qa.complete', { lintOutcome: lint.outcome, qaRunId: verification.qaRun.id });
+  await logEvent(jobId, 'job.qa.complete', {
+    ok: verification.ok,
+    qaRunId: verification.qaRun.id,
+    outcomes: Object.fromEntries(CHECK_NAMES.map((name) => [name, checks[name].outcome])),
+  });
+
+  if (!verification.ok) {
+    await logEvent(jobId, 'job.qa.failed');
+    await appendLog(jobId, '[QA] Verification failed — stopping before PREVIEW. See qa_runs for details.');
+    throw new Error('Verification failed: one or more checks did not pass. See qa_runs for details.');
+  }
+
   await appendLog(jobId, '[QA] Complete.');
 
   // ── Step 5: PREVIEW ──

@@ -53,6 +53,18 @@ end-to-end**, so slice 1's original "manual run against a real job" acceptance b
 outstanding (see `docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md` §11). 101/101 server tests
 passing (up from 75).
 
+**Update (2026-07-06, M4 slice 2 implemented):** On `feature/m4-verification-slice-2` (from
+`feature/m4-verification-slice-1`): `verify.ts`'s `runVerification()` now runs all four checks
+(`lint`/`build`/`typecheck`/`test`), each independently detected/skippable, and persists a full
+`qa_runs` row (no migration needed — confirmed by `docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md`
+§3's prediction). The orchestrator's QA step now **gates the pipeline**: a `failed` or `errored`
+check throws, which the existing `createJob`'s `.catch()` turns into `status='failed'` (reusing
+the codebase's existing error-propagation convention rather than adding a new one); a `skipped`
+check never blocks progression. New `GET /api/jobs/:id/qa` route returns a job's `qa_runs`
+history. 7 new/updated tests (108/108 server tests passing, up from 101) — same outstanding
+"manual run against a real job" caveat as slice 1 (no live Postgres/GitHub token/Railway in this
+session).
+
 This document does not replace the design/spec suite in `docs/00-documentation-map.md` — it
 tracks *status and sequencing* against that suite, and records where the running code has
 diverged from it.
@@ -165,7 +177,7 @@ milestone state provided for this baseline plus repo evidence found during the a
 | M3.1 — Registry | **Complete** | `server/src/services/harvester/registry.ts`, internal + Shadcn adapters, `registry_components` table, `/api/registry` route, `registry.test.ts` passing. |
 | M3.2 — Component Adaptation | **In progress** | `tfrs-adapter.ts` + `/api/adapt` route implement class-level TFRS adaptation and are unit-tested (`tfrs-adapter.test.ts`, `adapt.test.ts`). Not done: no scoring persistence, no `ComponentHarvester.jsx` end-to-end wiring audit performed, no manifest emitted (that's M3.3). |
 | M3.3 — Manifest Persistence | **Complete** | `adr/0007-manifest-persistence-data-model.md` (Accepted): lean-schema decision. `server/src/db/migrations/005_component_manifests.sql` adds the table; `server/src/services/harvester/manifest-store.ts` builds/validates/persists manifests; `server/src/routes/adapt.ts` wires it into `/component` and `/batch`. Tests: `manifest-store.test.ts`, updated `adapt.test.ts` (75/75 server tests passing). Caveat: migration not executed against a live Postgres in this environment (same gap as `registry_components`); `score` is a fixed placeholder pending candidate scoring (TICKET-029, RISK-14). |
-| M4 — Verification / Repair Loop | **In progress (slice 1 of 4)** | `qa_runs` now has a real writer: `server/src/services/verification/{workspace,checks,verify}.ts` + orchestrator wiring run a real `lint` check and persist one row per job. `build`/`typecheck`/`test` still `NULL` (slice 2), no repair loop yet (slice 3), pipeline still doesn't gate on the result. See `docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md`. |
+| M4 — Verification / Repair Loop | **In progress (slice 2 of 4)** | `qa_runs` now has a real writer for all four checks: `server/src/services/verification/{workspace,checks,verify}.ts` + orchestrator wiring run lint/build/typecheck/test (each independently skippable) and persist one full row per job. A failed/errored check now blocks the job at `failed` — no more silent proceed-regardless. `GET /api/jobs/:id/qa` exposes the results. No repair loop yet (slice 3). See `docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md`. |
 | M5 — Review / Export / PR Workflow | **Planned (partially pre-built)** | A minimal review→approve→PR path already exists (`jobs.status = 'review'`, `POST /api/jobs/:id/approve` opens a PR — `server/src/services/orchestrator/index.ts:407-435`). Missing: reviewer checklist/`review_decisions`, ZIP/patch export, `export_jobs`, checksums, export approval guard. |
 | M6 — Production Hardening | **Planned (not started)** | No auth/role checks, rate limiting, or the rest of the `docs/11-security-threat-model.md:107-117` checklist found in `server/src`. |
 
@@ -206,11 +218,11 @@ form):
    (`server/src/routes/adapt.ts`). Candidate scoring (previously item 1's open question) is
    still deferred — the manifest `score` field ships as a fixed placeholder (RISK-14).
 3. **M4 Verification / Repair Loop** — plan written
-   (`docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md`, 4 incremental slices); **slice 1 done**
-   (real `lint` check + `qa_runs` persistence, `server/src/services/verification/`). Remaining:
-   slice 2 (typecheck/test/build + gating + `GET /api/jobs/:id/qa`), slice 3 (bounded repair
-   loop feeding failures back to the provider, per `docs/08-live-preview-runtime.md:134-142`),
-   slice 4 (observability polish).
+   (`docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md`, 4 incremental slices); **slices 1-2
+   done** (all four checks, `qa_runs` persistence, pipeline gating, `GET /api/jobs/:id/qa`,
+   `server/src/services/verification/`). Remaining: slice 3 (bounded repair loop feeding
+   failures back to the provider, per `docs/08-live-preview-runtime.md:134-142`), slice 4
+   (observability polish).
 4. **M5 Review / Export / PR Workflow** — formalize the review step (checklist, decision
    record), add ZIP/Git-patch export with checksums and an export-approval guard
    (`docs/12-testing-quality-gates.md:84-91`).
@@ -227,11 +239,11 @@ match the shipped architecture instead of the original target design.
 
 See `project/active-sprint.yaml` for the structured version. Summary: **M3.3 Manifest
 Persistence** is implemented and merged to `main` (PR #23); its sprint items (SPR-3 through
-SPR-6) are done. **M4 Verification Engine** kickoff planning (SPR-7) and slice 1 implementation
-(SPR-8) are both done (`feature/m4-verification-slice-1`); slice 2 (SPR-9) is next. **M3.2
-Component Adaptation** close-out (SPR-1 `ComponentHarvester.jsx` wiring audit, SPR-2 scoring
-scope decision) remains open. No sprint dates are asserted here (none found in the repo);
-`project/active-sprint.yaml` marks the window as `needs-audit`.
+SPR-6) are done. **M4 Verification Engine** kickoff planning (SPR-7), slice 1 (SPR-8), and
+slice 2 (SPR-9) are all done (`feature/m4-verification-slice-2`); slice 3 (bounded repair loop,
+SPR-10) is next. **M3.2 Component Adaptation** close-out (SPR-1 `ComponentHarvester.jsx` wiring
+audit, SPR-2 scoring scope decision) remains open. No sprint dates are asserted here (none
+found in the repo); `project/active-sprint.yaml` marks the window as `needs-audit`.
 
 ## 7. Verification gates
 
@@ -253,8 +265,13 @@ Full register with probability/impact/mitigation in `project/risks.yaml`. Carrie
 
 - Invalid JSON plans reach the build step because nothing validates them against
   `contracts/plan.schema.json` (confirmed gap, §2.2.6).
-- The QA/verification step is a no-op placeholder, so jobs can reach `review` status without
-  any real lint/build/typecheck/test signal (confirmed gap, §2.2.4).
+- ~~The QA/verification step is a no-op placeholder, so jobs can reach `review` status without
+  any real lint/build/typecheck/test signal~~ **Partially resolved (M4 slices 1-2,
+  2026-07-06):** all four checks now run for real and a failed/errored one blocks the job at
+  `failed`. New residual risk: a job that fails verification currently just dies with no repair
+  attempt — until M4 slice 3 (bounded repair loop) lands, this is a behavior change from
+  "always reaches review" to "sometimes reaches failed with no automatic recovery," which is
+  more honest but means more jobs may need a human to re-run them manually in the interim.
 - Documentation drift: three design docs (`08`, `09`, `10`) describe a materially different
   architecture than what's running, which will mislead new contractors/agents who read docs
   before code (confirmed gap, §2.2.1-3).
@@ -339,22 +356,23 @@ Recommended order for the next agent, most-blocking first:
    confirm whether it should be updated to surface the new `manifest` field in adapt responses.
 4. ~~**M4 kickoff (planning)**~~ **Done** — see `docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md`.
    ~~**M4 slice 1**~~ **Done** (`server/src/services/verification/`, orchestrator QA step now
-   runs a real `lint` check) — see the implementation update banner at the top of this document.
-   Still outstanding before slice 2: a manual end-to-end run against a real job in an
-   environment with a live Postgres/GitHub token/Railway deploy (§11 of the plan doc) — not
-   possible in this session.
-   **Next: M4 slice 2** — extend to `typecheck`/`test`/`build` (each independently detected/
-   skippable), gate progression to `review` on a **Failed** outcome, and add
-   `GET /api/jobs/:id/qa` in the same PR so a failed job's output is visible
-   (`docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md` §10, slice 2).
+   runs a real `lint` check). ~~**M4 slice 2**~~ **Done** — all four checks
+   (`lint`/`build`/`typecheck`/`test`), pipeline gating (a failed/errored check now marks the
+   job `failed` instead of proceeding), and `GET /api/jobs/:id/qa` — see the implementation
+   update banners at the top of this document. Still outstanding: a manual end-to-end run
+   against a real job in an environment with a live Postgres/GitHub token/Railway deploy (§11 of
+   the plan doc) — not possible in this session, carried forward from slice 1.
+   **Next: M4 slice 3** — bounded repair loop: on a **Failed** outcome (not **Errored**), feed
+   the exact failing check's output back into the existing BUILD provider call, capped at a
+   small fixed attempt count tracked by counting `qa_runs` rows
+   (`docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md` §6/§10, slice 3).
 5. **Candidate scoring (TICKET-029)**: replace the fixed placeholder scores in
    `server/src/services/harvester/manifest-store.ts` with the weighted 0-100 model from
    `docs/06-component-harvester.md:49-65` (RISK-14) — not blocking, but the next natural
    improvement to M3.3's output quality.
 6. Everything else in §5 (roadmap) in the order listed there.
 
-Concretely, the single highest-value next issue is **M4 slice 2**
-(`docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md` §10) — slice 1 landed a real, injectable,
-tested `lint` check, but the pipeline still can't fail a job on real problems (build/typecheck/
-test are unimplemented and nothing gates on the result yet), which remains the next
-milestone-blocking gap per `docs/14-milestones.md`.
+Concretely, the single highest-value next issue is **M4 slice 3**
+(`docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md` §6/§10) — slices 1-2 landed real, gating
+verification, but a job that fails now just dies at `failed` with no attempt to fix itself,
+which is the last piece needed before M4's "repair loop" exit criteria can start being met.

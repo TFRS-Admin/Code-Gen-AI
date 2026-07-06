@@ -89,22 +89,22 @@ risks:
   - id: RISK-7
     title: "QA/verification step is a non-functional placeholder"
     source: "engineering-baseline-audit"
-    probability: medium
-    impact: high
+    probability: low
+    impact: medium
     mitigation: >
       Implement M4 per docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md (real lint/build/
       typecheck/test execution + qa_runs persistence + bounded repair loop), in 4 incremental
       slices.
     status: partially_mitigated
     repo_evidence: >
-      Slice 1 done (2026-07-06, feature/m4-verification-slice-1): the 'qa' phase
-      (server/src/services/orchestrator/index.ts) now runs a real `lint` check via
-      server/src/services/verification/{workspace,checks,verify}.ts and writes a real qa_runs
-      row. Still open: build/typecheck/tests remain NULL (slice 2), there is no repair loop
-      (slice 3), and jobs still reach 'review' regardless of the lint outcome — the pipeline
-      does not yet gate on any real verification signal. Probability downgraded from high to
-      medium now that a real (if partial) check exists; impact unchanged since nothing blocks
-      a bad job from reaching review yet.
+      Slices 1-2 done (2026-07-06, feature/m4-verification-slice-2): the 'qa' phase
+      (server/src/services/orchestrator/index.ts) now runs all four checks
+      (lint/build/typecheck/test) via server/src/services/verification/{workspace,checks,verify}.ts,
+      writes a real qa_runs row every time, and gates the pipeline — a failed/errored check now
+      marks the job 'failed' instead of proceeding to review. Still open: no repair loop yet
+      (slice 3), so a job that fails verification currently just stops rather than being fixed
+      automatically (see RISK-17). Probability/impact both downgraded further now that the
+      pipeline no longer silently reaches review with a known-bad build.
 
   - id: RISK-8
     title: "No enforcement of the component dependency allowlist/disallow list at build time"
@@ -248,3 +248,22 @@ risks:
       so a hardcoded `npm run typecheck` would either fail on repos without that script or
       silently report false confidence if a
       missing script were ever treated as an implicit pass.
+
+  # ── New risk from the M4 slice 2 implementation (2026-07-06) ──
+  - id: RISK-17
+    title: "A job that fails verification now just stops — no automatic repair yet"
+    source: "M4 slice 2 implementation"
+    probability: high
+    impact: medium
+    mitigation: >
+      Implement M4 slice 3 (docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md sections 6/10):
+      on a Failed (not Errored) outcome, feed the exact failing check's output back into the
+      existing BUILD provider call, capped at a small fixed attempt count. Until then, a human
+      has to notice the failed job and re-run/fix it manually.
+    status: open
+    repo_evidence: >
+      server/src/services/orchestrator/index.ts's QA step now throws when
+      runVerification's `ok` is false, which server/src/services/orchestrator/index.ts's
+      createJob().catch() turns into status='failed' — a deliberate, correct behavior change
+      from M4 slice 1/pre-M4 (where a bad build always silently reached 'review'), but it means
+      more jobs may now end in 'failed' with no automatic recovery path until slice 3 lands.

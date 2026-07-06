@@ -7,6 +7,10 @@ function fakeResult(files: RepoFilesResult['files']): RepoFilesResult {
   return { files, totalTreeEntries: Object.keys(files).length, includedFiles: Object.keys(files).length, truncated: false };
 }
 
+function packageJsonWithScripts(scripts: Record<string, string>): RepoFilesResult['files'] {
+  return { 'package.json': { content: JSON.stringify({ scripts }), language: 'json' } };
+}
+
 /** Records every qa_runs row runVerification asks to persist, without touching a real database. */
 function recordingPersist() {
   const calls: NewQaRun[] = [];
@@ -16,21 +20,21 @@ function recordingPersist() {
       id: `qa-${calls.length}`,
       job_id: input.jobId,
       lint_passed: input.lintPassed,
-      build_passed: null,
-      typecheck_passed: null,
-      tests_passed: null,
+      build_passed: input.buildPassed,
+      typecheck_passed: input.typecheckPassed,
+      tests_passed: input.testsPassed,
       lint_output: input.lintOutput,
-      build_output: null,
-      typecheck_output: null,
-      test_output: null,
+      build_output: input.buildOutput,
+      typecheck_output: input.typecheckOutput,
+      test_output: input.testOutput,
       created_at: '2026-07-06T00:00:00.000Z',
     };
   };
   return { calls, persistQaRun };
 }
 
-test('runVerification: skips lint and persists a null (not fabricated) result when no lint script exists', async () => {
-  const fetchRepoFiles = async () => fakeResult({ 'package.json': { content: '{"scripts":{}}', language: 'json' } });
+test('runVerification: skips every check and persists an all-null result when package.json has no scripts', async () => {
+  const fetchRepoFiles = async () => fakeResult(packageJsonWithScripts({}));
   const { calls, persistQaRun } = recordingPersist();
 
   const result = await runVerification(
@@ -38,19 +42,33 @@ test('runVerification: skips lint and persists a null (not fabricated) result wh
     { fetchRepoFiles, persistQaRun }
   );
 
-  assert.equal(result.lint.outcome, 'skipped');
-  assert.equal(calls.length, 1);
-  assert.deepEqual(calls[0], { jobId: 'job-1', lintPassed: null, lintOutput: null });
+  assert.equal(result.ok, true);
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(result.checks).map(([k, v]) => [k, v.outcome])),
+    { lint: 'skipped', build: 'skipped', typecheck: 'skipped', test: 'skipped' }
+  );
+  assert.deepEqual(calls[0], {
+    jobId: 'job-1',
+    lintPassed: null,
+    lintOutput: null,
+    buildPassed: null,
+    buildOutput: null,
+    typecheckPassed: null,
+    typecheckOutput: null,
+    testsPassed: null,
+    testOutput: null,
+  });
 });
 
-test('runVerification: installs dependencies, runs lint, and persists a real passed result', async () => {
-  const fetchRepoFiles = async () =>
-    fakeResult({ 'package.json': { content: '{"scripts":{"lint":"eslint ."}}', language: 'json' } });
-  const execCalls: string[][] = [];
+test('runVerification: runs only the checks the target repo defines, skipping the rest', async () => {
+  const fetchRepoFiles = async () => fakeResult(packageJsonWithScripts({ lint: 'eslint .', test: 'vitest run' }));
+  const runCalls: string[] = [];
   const exec = async (_command: string, args: string[]) => {
-    execCalls.push(args);
-    if (args[0] === 'install') return { stdout: 'added 1 package', stderr: '' };
-    return { stdout: 'no problems', stderr: '' };
+    if (args[0] === 'run') {
+      runCalls.push(args[1]);
+      return { stdout: `${args[1]} ok`, stderr: '' };
+    }
+    return { stdout: '', stderr: '' }; // install
   };
   const { calls, persistQaRun } = recordingPersist();
 
@@ -59,42 +77,70 @@ test('runVerification: installs dependencies, runs lint, and persists a real pas
     { fetchRepoFiles, exec, persistQaRun }
   );
 
-  assert.equal(result.lint.outcome, 'passed');
-  assert.deepEqual(execCalls, [['install'], ['run', 'lint']]);
-  assert.deepEqual(calls[0], { jobId: 'job-2', lintPassed: true, lintOutput: 'no problems' });
+  assert.deepEqual(runCalls, ['lint', 'test']); // build/typecheck never invoked
+  assert.equal(result.checks.build.outcome, 'skipped');
+  assert.equal(result.checks.typecheck.outcome, 'skipped');
+  assert.equal(result.checks.lint.outcome, 'passed');
+  assert.equal(result.checks.test.outcome, 'passed');
+  assert.equal(result.ok, true);
+  assert.deepEqual(calls[0], {
+    jobId: 'job-2',
+    lintPassed: true,
+    lintOutput: 'lint ok',
+    buildPassed: null,
+    buildOutput: null,
+    typecheckPassed: null,
+    typecheckOutput: null,
+    testsPassed: true,
+    testOutput: 'test ok',
+  });
 });
 
-test('runVerification: runs "npm ci" instead of "npm install" when a lockfile was materialized', async () => {
+test('runVerification: runs all four checks in order and persists a fully-passed row', async () => {
   const fetchRepoFiles = async () =>
-    fakeResult({
-      'package.json': { content: '{"scripts":{"lint":"eslint ."}}', language: 'json' },
-      'package-lock.json': { content: '{}', language: 'json' },
-    });
-  const execCalls: string[][] = [];
+    fakeResult(packageJsonWithScripts({ lint: 'eslint .', build: 'vite build', typecheck: 'tsc', test: 'vitest run' }));
+  const runCalls: string[] = [];
   const exec = async (_command: string, args: string[]) => {
-    execCalls.push(args);
-    return { stdout: 'ok', stderr: '' };
+    if (args[0] === 'run') {
+      runCalls.push(args[1]);
+      return { stdout: `${args[1]} ok`, stderr: '' };
+    }
+    return { stdout: '', stderr: '' };
   };
-  const { persistQaRun } = recordingPersist();
+  const { calls, persistQaRun } = recordingPersist();
 
-  await runVerification(
+  const result = await runVerification(
     { jobId: 'job-3', owner: 'acme', repo: 'demo', branch: 'feature/x' },
     { fetchRepoFiles, exec, persistQaRun }
   );
 
-  assert.deepEqual(execCalls[0], ['ci']);
+  assert.deepEqual(runCalls, ['lint', 'build', 'typecheck', 'test']);
+  assert.equal(result.ok, true);
+  assert.deepEqual(calls[0], {
+    jobId: 'job-3',
+    lintPassed: true,
+    lintOutput: 'lint ok',
+    buildPassed: true,
+    buildOutput: 'build ok',
+    typecheckPassed: true,
+    typecheckOutput: 'typecheck ok',
+    testsPassed: true,
+    testOutput: 'test ok',
+  });
 });
 
-test('runVerification: persists a real failed result when lint finds problems', async () => {
+test('runVerification: a failed lint blocks "ok" even when the other three checks pass', async () => {
   const fetchRepoFiles = async () =>
-    fakeResult({ 'package.json': { content: '{"scripts":{"lint":"eslint ."}}', language: 'json' } });
+    fakeResult(packageJsonWithScripts({ lint: 'eslint .', build: 'vite build', typecheck: 'tsc', test: 'vitest run' }));
   const exec = async (_command: string, args: string[]) => {
-    if (args[0] === 'install') return { stdout: '', stderr: '' };
-    const err: any = new Error('lint failed');
-    err.code = 1;
-    err.stdout = '';
-    err.stderr = '1 problem (1 error, 0 warnings)';
-    throw err;
+    if (args[0] === 'run' && args[1] === 'lint') {
+      const err: any = new Error('lint failed');
+      err.code = 1;
+      err.stderr = '1 problem (1 error, 0 warnings)';
+      throw err;
+    }
+    if (args[0] === 'run') return { stdout: `${args[1]} ok`, stderr: '' };
+    return { stdout: '', stderr: '' };
   };
   const { calls, persistQaRun } = recordingPersist();
 
@@ -103,29 +149,76 @@ test('runVerification: persists a real failed result when lint finds problems', 
     { fetchRepoFiles, exec, persistQaRun }
   );
 
-  assert.equal(result.lint.outcome, 'failed');
-  assert.deepEqual(calls[0], { jobId: 'job-4', lintPassed: false, lintOutput: '1 problem (1 error, 0 warnings)' });
+  assert.equal(result.ok, false);
+  assert.equal(result.checks.lint.outcome, 'failed');
+  assert.equal(result.checks.build.outcome, 'passed');
+  assert.equal(result.checks.typecheck.outcome, 'passed');
+  assert.equal(result.checks.test.outcome, 'passed');
+  assert.equal(calls[0].lintPassed, false);
+  assert.equal(calls[0].buildPassed, true);
 });
 
-test('runVerification: persists a null (not fabricated) result when workspace materialization fails', async () => {
-  const fetchRepoFiles = async () => {
-    throw new Error('GitHub API error: rate limited');
+test('runVerification: an errored check (e.g. timeout) blocks "ok" the same as a failed one', async () => {
+  const fetchRepoFiles = async () => fakeResult(packageJsonWithScripts({ build: 'vite build' }));
+  const exec = async (_command: string, args: string[]) => {
+    if (args[0] === 'run' && args[1] === 'build') {
+      const err: any = new Error('timed out');
+      err.killed = true;
+      err.signal = 'SIGTERM';
+      throw err;
+    }
+    return { stdout: '', stderr: '' };
   };
   const { calls, persistQaRun } = recordingPersist();
 
   const result = await runVerification(
     { jobId: 'job-5', owner: 'acme', repo: 'demo', branch: 'feature/x' },
-    { fetchRepoFiles, persistQaRun }
+    { fetchRepoFiles, exec, persistQaRun }
   );
 
-  assert.equal(result.lint.outcome, 'errored');
-  assert.equal(calls[0].lintPassed, null);
-  assert.match(calls[0].lintOutput ?? '', /rate limited/);
+  assert.equal(result.ok, false);
+  assert.equal(result.checks.build.outcome, 'errored');
+  assert.equal(calls[0].buildPassed, null); // never fabricated as failed or passed
 });
 
-test('runVerification: persists a null (not fabricated) result when dependency install fails', async () => {
-  const fetchRepoFiles = async () =>
-    fakeResult({ 'package.json': { content: '{"scripts":{"lint":"eslint ."}}', language: 'json' } });
+test('runVerification: a skipped check never blocks "ok" on its own', async () => {
+  const fetchRepoFiles = async () => fakeResult(packageJsonWithScripts({ lint: 'eslint .' }));
+  const exec = async (_command: string, args: string[]) => {
+    if (args[0] === 'run') return { stdout: 'clean', stderr: '' };
+    return { stdout: '', stderr: '' };
+  };
+  const { persistQaRun } = recordingPersist();
+
+  const result = await runVerification(
+    { jobId: 'job-6', owner: 'acme', repo: 'demo', branch: 'feature/x' },
+    { fetchRepoFiles, exec, persistQaRun }
+  );
+
+  assert.equal(result.checks.lint.outcome, 'passed');
+  assert.equal(result.checks.build.outcome, 'skipped');
+  assert.equal(result.checks.typecheck.outcome, 'skipped');
+  assert.equal(result.checks.test.outcome, 'skipped');
+  assert.equal(result.ok, true);
+});
+
+test('runVerification: runs "npm ci" instead of "npm install" when a lockfile was materialized', async () => {
+  const files = packageJsonWithScripts({ lint: 'eslint .' });
+  files['package-lock.json'] = { content: '{}', language: 'json' };
+  const fetchRepoFiles = async () => fakeResult(files);
+  const execCalls: string[][] = [];
+  const exec = async (_command: string, args: string[]) => {
+    execCalls.push(args);
+    return { stdout: 'ok', stderr: '' };
+  };
+  const { persistQaRun } = recordingPersist();
+
+  await runVerification({ jobId: 'job-7', owner: 'acme', repo: 'demo', branch: 'feature/x' }, { fetchRepoFiles, exec, persistQaRun });
+
+  assert.deepEqual(execCalls[0], ['ci']);
+});
+
+test('runVerification: when install fails, every available check is errored and unavailable ones stay skipped', async () => {
+  const fetchRepoFiles = async () => fakeResult(packageJsonWithScripts({ lint: 'eslint .', test: 'vitest run' }));
   const exec = async () => {
     const err: any = new Error('npm ERR! network timeout');
     err.code = 1;
@@ -135,10 +228,37 @@ test('runVerification: persists a null (not fabricated) result when dependency i
   const { calls, persistQaRun } = recordingPersist();
 
   const result = await runVerification(
-    { jobId: 'job-6', owner: 'acme', repo: 'demo', branch: 'feature/x' },
+    { jobId: 'job-8', owner: 'acme', repo: 'demo', branch: 'feature/x' },
     { fetchRepoFiles, exec, persistQaRun }
   );
 
-  assert.equal(result.lint.outcome, 'errored');
+  assert.equal(result.ok, false);
+  assert.equal(result.checks.lint.outcome, 'errored');
+  assert.equal(result.checks.test.outcome, 'errored');
+  assert.equal(result.checks.build.outcome, 'skipped');
+  assert.equal(result.checks.typecheck.outcome, 'skipped');
   assert.equal(calls[0].lintPassed, null);
+  assert.equal(calls[0].buildPassed, null);
+});
+
+test('runVerification: when workspace materialization fails, every check is errored (not fabricated as failed)', async () => {
+  const fetchRepoFiles = async () => {
+    throw new Error('GitHub API error: rate limited');
+  };
+  const { calls, persistQaRun } = recordingPersist();
+
+  const result = await runVerification(
+    { jobId: 'job-9', owner: 'acme', repo: 'demo', branch: 'feature/x' },
+    { fetchRepoFiles, persistQaRun }
+  );
+
+  assert.equal(result.ok, false);
+  for (const name of ['lint', 'build', 'typecheck', 'test'] as const) {
+    assert.equal(result.checks[name].outcome, 'errored');
+    assert.match(result.checks[name].output, /rate limited/);
+  }
+  assert.equal(calls[0].lintPassed, null);
+  assert.equal(calls[0].buildPassed, null);
+  assert.equal(calls[0].typecheckPassed, null);
+  assert.equal(calls[0].testsPassed, null);
 });
