@@ -157,32 +157,38 @@ milestones:
 
   - id: M4
     name: "Verification / Repair Loop"
-    status: planned
+    status: in_progress
     owner: Full-stack/QA
     exit_criteria:
       - criterion: "Verification failures produce repair context"
         met: false
         evidence: []
+        note: "Still not met — no repair loop exists yet (M4 slice 3, not started)."
       - criterion: "Repair fixes at least one known import/build error"
         met: false
         evidence: []
+        note: "Still not met — depends on the slice 3 repair loop above."
       - criterion: "Reviewer can approve/request changes"
         met: needs-audit
         evidence: ["server/src/routes/jobs.ts:81-96 (approve only, no request-changes path found)"]
     notes: >
-      QA step in the orchestrator is a hard-coded placeholder that only appends log lines
-      ("[QA] Running lint...", etc.) and never executes real checks or writes to qa_runs.
-      See server/src/services/orchestrator/index.ts:357-367, which contains an explicit
-      TODO(M3) comment confirming this. qa_runs table has existed since 001_initial.sql but
-      has zero writers found in server/src. Kickoff planning complete (2026-07-05):
-      docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md, on branch
-      feature/m4-verification-engine-plan, scopes 4 incremental slices. Key finding from
-      planning: server/src/services/github/index.ts:1-7 confirms there is no local
-      checkout/sandbox execution capability today (Railway, no persistent filesystem, all repo
-      ops go through the GitHub REST API) — slice 1 must first establish a way to materialize a
-      job's branch and run commands against it before any real check can run. qa_runs' existing
-      schema needs no migration for slices 1-2. Status remains "planned" — no implementation
-      exists yet, only the plan.
+      Kickoff planning complete (2026-07-05): docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md
+      scopes 4 incremental slices. Slice 1 implemented (2026-07-06,
+      feature/m4-verification-slice-1): server/src/services/verification/{workspace,checks,verify}.ts
+      materialize a job's feature branch (reusing the existing github.getRepoFiles fetcher — no
+      local git/tarball dependency added), detect available package.json scripts, and run a
+      real `npm run lint` via an injectable, timeout-enforced, shell-free execFile wrapper,
+      classifying the result as passed/failed/errored/skipped. The orchestrator's QA step
+      (server/src/services/orchestrator/index.ts) now persists one real qa_runs row
+      (lint_passed/lint_output) instead of the previous hard-coded log-only placeholder.
+      build/typecheck/tests remain NULL (slice 2, not started); there is still no repair loop
+      (slice 3); the pipeline still does not gate progression to preview/review on the result
+      (deliberately deferred to slice 2). None of M4's 3 exit criteria are met yet — this slice
+      lays the execution-sandbox foundation slices 2-3 depend on, it does not itself satisfy any
+      exit criterion. 26 new tests, all against injected fakes for the GitHub fetch/child-process/
+      DB layers (101/101 server tests passing, up from 75) — not yet verified with a real job in
+      an environment with a live Postgres/GitHub token/Railway deploy (none available in this
+      session).
 
   - id: M5
     name: "Review / Export / PR Workflow"

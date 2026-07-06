@@ -193,14 +193,20 @@ epics:
     tickets:
       - id: TICKET-032
         title: "Implement verification runs"
-        status: todo
-        evidence: ["docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md"]
+        status: in_progress
+        evidence:
+          - "docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md"
+          - "server/src/services/verification/workspace.ts"
+          - "server/src/services/verification/checks.ts"
+          - "server/src/services/verification/verify.ts"
+          - "server/src/services/orchestrator/index.ts"
         note: >
-          qa_runs table exists (001_initial.sql:44-56) but the orchestrator's QA step
-          (index.ts:357-367) is a hard-coded placeholder that never writes to it. Kickoff plan
-          written (2026-07-05, feature/m4-verification-engine-plan, no product code changed):
-          4 incremental slices, starting with a sandbox-materialization spike since no local
-          checkout/execution capability exists today. Still status: todo — planning only.
+          qa_runs table exists (001_initial.sql:44-56) and now has a real writer: M4 slice 1
+          (2026-07-06, feature/m4-verification-slice-1) runs a real `lint` check against a
+          materialized copy of the feature branch and persists one qa_runs row per job.
+          build/typecheck/tests remain NULL (slice 2), no repair loop yet (slice 3), and the
+          pipeline still doesn't gate on the result. Not yet run against a live job in a real
+          environment (no Postgres/GitHub token/Railway available in this session).
       - id: TICKET-033
         title: "Add review decisions"
         status: todo
@@ -221,8 +227,8 @@ epics:
 
 counts:
   done: 18
-  in_progress: 3
-  todo: 12
+  in_progress: 4
+  todo: 11
   superseded: 2
   needs_audit: 1
   total: 36

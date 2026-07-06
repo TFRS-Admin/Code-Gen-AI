@@ -89,19 +89,22 @@ risks:
   - id: RISK-7
     title: "QA/verification step is a non-functional placeholder"
     source: "engineering-baseline-audit"
-    probability: high
+    probability: medium
     impact: high
     mitigation: >
       Implement M4 per docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md (real lint/build/
       typecheck/test execution + qa_runs persistence + bounded repair loop), in 4 incremental
       slices.
-    status: open
+    status: partially_mitigated
     repo_evidence: >
-      server/src/services/orchestrator/index.ts:357-367 — the 'qa' phase only appends log
-      lines and contains an explicit TODO(M3) comment; qa_runs table has zero writers found
-      in server/src. Jobs can reach 'review' status with no real verification signal. Kickoff
-      plan written (2026-07-05); implementation not started — see RISK-15 for the specific
-      blocking gap the plan surfaced.
+      Slice 1 done (2026-07-06, feature/m4-verification-slice-1): the 'qa' phase
+      (server/src/services/orchestrator/index.ts) now runs a real `lint` check via
+      server/src/services/verification/{workspace,checks,verify}.ts and writes a real qa_runs
+      row. Still open: build/typecheck/tests remain NULL (slice 2), there is no repair loop
+      (slice 3), and jobs still reach 'review' regardless of the lint outcome — the pipeline
+      does not yet gate on any real verification signal. Probability downgraded from high to
+      medium now that a real (if partial) check exists; impact unchanged since nothing blocks
+      a bad job from reaching review yet.
 
   - id: RISK-8
     title: "No enforcement of the component dependency allowlist/disallow list at build time"
@@ -206,37 +209,42 @@ risks:
   - id: RISK-15
     title: "No local checkout/sandbox execution capability exists — M4 cannot 'just add a shell command'"
     source: "docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md"
-    probability: high
+    probability: low
     impact: high
     mitigation: >
-      M4 slice 1 (docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md section 10) is scoped as a
-      spike to resolve this first: materialize a job's feature branch locally (tarball download
-      via Octokit, or reconstruct from the existing getFileTree/getFileContent calls) and
-      confirm npm install + one script can run within a job's lifetime in the Railway
-      container, before any other M4 work proceeds.
-    status: open
+      Resolved by M4 slice 1 (2026-07-06, feature/m4-verification-slice-1):
+      server/src/services/verification/workspace.ts materializes a job's feature branch into a
+      temp directory by reusing the existing github.getRepoFiles fetcher (no new git-clone/tar
+      dependency added, no server/nixpacks.toml change needed).
+    status: mitigated
     repo_evidence: >
-      server/src/services/github/index.ts:1-7's own header comment: "The server runs on
-      Railway with no persistent filesystem, so all repository operations ... go through the
-      GitHub REST API rather than local git commands." The BUILD step never clones or
-      materializes the repo; server/nixpacks.toml only declares nodejs_20, with no `git` CLI
-      guaranteed present. The orchestrator's existing TODO(M3) comment ("run npm lint/build/
-      typecheck/test against the sandboxed checkout") assumes a sandbox that does not exist.
+      server/src/services/verification/workspace.ts (materializeWorkspace) +
+      server/src/services/verification/verify.ts (runVerification) now provide the sandbox the
+      orchestrator's QA step calls; server/src/services/orchestrator/index.ts's QA step uses it
+      to run a real `npm ci`/`npm install` + `npm run lint`. Residual risk (probability
+      downgraded, not closed): not yet confirmed against a real Railway deployment — this
+      session had no live Postgres/GitHub token/Railway environment to run an actual job
+      end-to-end (docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md section 11). Also unresolved:
+      slice 1 only wires `lint`; build/typecheck/test still don't run (slice 2).
 
   - id: RISK-16
     title: "Verification engine must not fabricate pass/fail for checks a target repo doesn't define"
     source: "docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md"
-    probability: medium
+    probability: low
     impact: high
     mitigation: >
-      Detect available checks from the target repo's own package.json scripts (mirroring
-      WebContainersPreview.jsx's existing dev/start script detection) and record a missing
-      script as "not applicable" (null), never as a fabricated pass. See
-      docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md section 4-5 for the full failure model
-      (Passed / Failed / Errored).
-    status: open
+      Resolved by M4 slice 1: server/src/services/verification/checks.ts's
+      detectAvailableChecks() reads the target repo's own package.json scripts and reports a
+      missing script as unavailable; server/src/services/verification/verify.ts persists
+      lintPassed: null (not true/false) when lint is skipped, mirroring
+      WebContainersPreview.jsx's existing dev/start script detection pattern.
+    status: mitigated
     repo_evidence: >
-      Blair operates on arbitrary connected repositories chosen via the repo/branch picker
-      (README.md:12-21), not just this monorepo, so a hardcoded `npm run typecheck` would
-      either fail on repos without that script or silently report false confidence if a
+      server/src/services/verification/checks.test.ts covers detectAvailableChecks returning
+      all-false for missing/unparsable package.json and exactly the present scripts otherwise;
+      server/src/services/verification/verify.test.ts confirms a skipped lint persists
+      `lintPassed: null`, not a fabricated true. Blair operates on arbitrary connected
+      repositories chosen via the repo/branch picker (README.md:12-21), not just this monorepo,
+      so a hardcoded `npm run typecheck` would either fail on repos without that script or
+      silently report false confidence if a
       missing script were ever treated as an implicit pass.

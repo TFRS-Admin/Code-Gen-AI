@@ -5,6 +5,7 @@ import { BLAIR_SYSTEM_PROMPT } from '../blairPrompt';
 import * as github from '../github';
 import { config } from '../../config';
 import { v4 as uuidv4 } from 'uuid';
+import { runVerification } from '../verification/verify';
 
 export interface JobInput {
   repoUrl: string;
@@ -354,16 +355,32 @@ async function runJobPipeline(jobId: string): Promise<void> {
   await logEvent(jobId, 'job.building.complete', { filesCommitted: committedCount });
   await appendLog(jobId, `[BUILD] Complete. ${committedCount} files committed.`);
 
-  // ── Step 4: QA (placeholder) ──
+  // ── Step 4: QA ──
+  // M4 slice 1 (docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md): runs a real
+  // `lint` check against a materialized copy of the feature branch and
+  // persists one real qa_runs row. build/typecheck/tests are still TODO
+  // (slice 2). This slice does not gate the pipeline or repair anything —
+  // the job proceeds to PREVIEW regardless of the lint outcome, matching
+  // today's always-proceed behavior; gating and a bounded repair loop are
+  // scoped to slices 2-3.
   await updateJobStatus(jobId, 'qa');
   await logEvent(jobId, 'job.qa.started');
-  await appendLog(jobId, '[QA] Running lint...');
-  await appendLog(jobId, '[QA] Running build...');
-  await appendLog(jobId, '[QA] Running typecheck...');
-  await appendLog(jobId, '[QA] Running tests...');
-  // TODO(M3): Actually run npm lint/build/typecheck/test against the sandboxed
-  // checkout and persist real pass/fail output to the qa_runs table.
-  await logEvent(jobId, 'job.qa.complete');
+  await appendLog(jobId, '[QA] Materializing workspace and checking for a lint script...');
+
+  const verification = await runVerification({ jobId, owner, repo, branch: featureBranch });
+  const { lint } = verification;
+
+  if (lint.outcome === 'skipped') {
+    await appendLog(jobId, '[QA] No lint script found in package.json — skipped.');
+  } else if (lint.outcome === 'passed') {
+    await appendLog(jobId, '[QA] Lint passed.');
+  } else if (lint.outcome === 'failed') {
+    await appendLog(jobId, '[QA] Lint failed.');
+  } else {
+    await appendLog(jobId, `[QA] Lint could not run: ${lint.output.slice(0, 500)}`);
+  }
+
+  await logEvent(jobId, 'job.qa.complete', { lintOutcome: lint.outcome, qaRunId: verification.qaRun.id });
   await appendLog(jobId, '[QA] Complete.');
 
   // ── Step 5: PREVIEW ──

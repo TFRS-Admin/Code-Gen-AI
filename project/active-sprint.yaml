@@ -16,8 +16,9 @@ sprint:
   goal: >
     Close out M3.2 Component Adaptation and begin M3.3 Manifest Persistence. M3.3 is now
     implemented (SPR-3 through SPR-6 done) and merged to main (PR #23). M4 Verification
-    Engine kickoff planning is done (SPR-7); M3.2's ComponentHarvester.jsx wiring audit
-    (SPR-1) and candidate-scoring scope decision (SPR-2) remain open.
+    Engine kickoff planning (SPR-7) and slice 1 (SPR-8) are both done, on
+    feature/m4-verification-slice-1; slice 2 (SPR-9) is next. M3.2's ComponentHarvester.jsx
+    wiring audit (SPR-1) and candidate-scoring scope decision (SPR-2) remain open.
   milestones_in_focus: [M3.2, M3.3, M4]
 
   items:
@@ -89,10 +90,34 @@ sprint:
     - id: SPR-8
       title: "Implement M4 slice 1: sandbox spike + single-check execution"
       milestone: M4
+      status: done
+      evidence:
+        - "server/src/services/verification/workspace.ts"
+        - "server/src/services/verification/checks.ts"
+        - "server/src/services/verification/verify.ts"
+        - "server/src/services/orchestrator/index.ts"
+        - "server/src/services/verification/workspace.test.ts"
+        - "server/src/services/verification/checks.test.ts"
+        - "server/src/services/verification/verify.test.ts"
+      note: >
+        Real lint check + qa_runs persistence, on feature/m4-verification-slice-1. Workspace
+        materialization reuses the existing github.getRepoFiles fetcher (no new git-clone/tar
+        dependency). Command execution via injectable execFile, never a shell string — no
+        shell-injection surface. No repair loop, no gating (job still proceeds to preview
+        regardless of lint outcome), build/typecheck/tests still NULL — all per slice 1's
+        deliberately narrow scope. 26 new tests (101/101 server tests passing, up from 75).
+        Not yet verified against a live Postgres/GitHub token/Railway environment (none
+        available in this session) — see docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md
+        section 11.
+
+    - id: SPR-9
+      title: "Implement M4 slice 2: all four checks + gating + GET /api/jobs/:id/qa"
+      milestone: M4
       status: todo
-      blocked_by: [SPR-7]
+      blocked_by: [SPR-8]
       reference: "docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md section 10"
 
   out_of_sprint_but_flagged:
-    - "M4 slices 2-4 (all checks, repair loop, observability polish) — sequenced after slice 1 lands, per docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md section 10."
+    - "M4 slices 3-4 (bounded repair loop, observability polish) — sequenced after slice 2 lands, per docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md section 10."
+    - "A manual end-to-end run of M4 slice 1 against a real job (live Postgres/GitHub token/Railway) — not possible in this session, should happen before slice 2 builds further on top."
     - "Plan-schema validation and provider_calls logging — cross-cutting, not scheduled to a milestone."

@@ -1,11 +1,29 @@
 # M4 Verification Engine — Kickoff Plan
 
-Status: **Planning only — no product code on this branch.** Owner: Full-stack/QA.
+Status: **Slice 1 implemented (2026-07-06).** Owner: Full-stack/QA.
 
 This plan grounds M4 ("Verification / Repair Loop") in what is actually running today, per
-`docs/engineering/ENGINEERING_MASTER_PLAN.md` §3/§5 and `project/milestones.yaml` M4. It does not
-implement anything — it exists so the first implementation PR can start from a scoped, sliced
-plan instead of the bare `TODO(M3)` comment currently in the orchestrator.
+`docs/engineering/ENGINEERING_MASTER_PLAN.md` §3/§5 and `project/milestones.yaml` M4. It
+originally shipped as planning-only; slice 1 (§10) is now implemented on
+`feature/m4-verification-slice-1`:
+
+- `server/src/services/verification/workspace.ts` — materializes a branch into a temp dir via
+  the existing `github.getRepoFiles` fetcher (injectable for tests).
+- `server/src/services/verification/checks.ts` — `detectAvailableChecks` (reads the target
+  repo's `package.json` scripts, never fabricates availability) and `runCommand`/`runInstall`
+  (injectable `execFile`-based command runner, classifies Passed/Failed/Errored, enforces a
+  timeout, never shells out to a string command).
+- `server/src/services/verification/verify.ts` — `runVerification()` ties the above together
+  and persists one real `qa_runs` row per job via `persistQaRun`.
+- `server/src/services/orchestrator/index.ts`'s QA step now calls `runVerification` for a real
+  `lint` check instead of logging fake progress lines. `build`/`typecheck`/`test` remain `NULL`
+  (slice 2), there is still no repair loop (slice 3), and the pipeline still does not gate on
+  the result (job proceeds to `preview` regardless of lint outcome) — both deliberately deferred
+  per §10/§11 below.
+- 26 new tests (101/101 server tests passing, up from 75) — see §9 for what they cover.
+
+The rest of this document (§2-§11) is unchanged from the original kickoff plan and remains the
+reference for slices 2-4.
 
 ## 1. Current orchestrator QA placeholder — evidence
 
@@ -222,40 +240,45 @@ Minimal, additive, read-only for the first slices:
 Mirroring the existing test patterns in this codebase (`server/src/routes/*.test.ts` DI-stub
 style, `server/src/services/**/*.test.ts` pure-function style):
 
-- **Sandbox materialization** (new `server/src/services/verify/sandbox.test.ts` or similar):
-  given a fake file-fetch function, produces the expected temp directory contents; cleans up
-  after itself; surfaces a fetch failure as an **Errored** outcome, not a thrown exception that
-  kills the job.
-- **Check detection** (pure function, e.g. `detectAvailableChecks(packageJson)`): returns exactly
-  the checks whose script key exists; empty `scripts` → no checks (not a crash).
-- **Command execution wrapper**: given an injectable "run command" function (mirroring
-  `PollPreviewOptions`'s `fetchImpl`/`sleepImpl` injectable pattern in
-  `server/src/services/orchestrator/index.ts:169-174`), correctly classifies exit code 0 vs
-  non-zero vs timeout into Passed/Failed/Errored (§5).
-- **`qa_runs` persistence**: a row is written with the right shape after a verify attempt
-  (mirrors `manifest-store.test.ts`'s `persistManifest`-adjacent tests from M3.3).
-- **Repair-loop boundary**: exactly `maxAttempts` repair cycles are attempted then the job goes
-  `failed`; an **Errored** outcome never consumes a repair attempt (§6).
-- **`GET /api/jobs/:id/qa` route**: DI-stubbed test mirroring `jobs.test.ts`'s existing
-  `/preview` coverage.
-- **No regression**: existing `orchestrator/index.test.ts` (`buildPreviewUrl`/`pollPreviewReady`)
-  and `jobs.test.ts` continue passing unchanged — the QA step change must not alter the
-  PLAN/BUILD/PREVIEW/REVIEW steps' existing behavior or tests.
+- ~~**Sandbox materialization**~~ **Done** — `server/src/services/verification/workspace.test.ts`
+  (5 tests): writes fetched files to disk incl. nested directories, cleanup removes the temp
+  dir, a fetch failure propagates without leaving a temp dir behind, a path-escaping entry is
+  refused, and a partial-write failure still cleans up.
+- ~~**Check detection**~~ **Done** — `server/src/services/verification/checks.test.ts` covers
+  `detectAvailableChecks` (5 tests: missing/unparsable/absent-scripts/mixed/non-string-value
+  cases) and `readPackageJson` (2 tests).
+- ~~**Command execution wrapper**~~ **Done** — same file, `runCommand`/`runInstall` (9 tests):
+  passed (exit 0), failed (non-zero exit), errored (timeout via `killed`/`signal`), errored
+  (spawn-level `ENOENT`), `npm ci` vs `npm install` argv selection, and install failures always
+  classified `errored` (never `failed`).
+- ~~**`qa_runs` persistence**~~ **Done, at the `runVerification` level** —
+  `server/src/services/verification/verify.test.ts` (6 tests) asserts the exact
+  `{jobId, lintPassed, lintOutput}` shape passed to an injected `persistQaRun` for each outcome
+  (skipped/passed/failed/errored via materialization failure/errored via install failure).
+- **Repair-loop boundary** — not yet, slice 3 (§6/§10).
+- **`GET /api/jobs/:id/qa` route** — not yet, slice 2 (§8/§10).
+- ~~**No regression**~~ **Done** — `orchestrator/index.test.ts` (`buildPreviewUrl`/
+  `pollPreviewReady`) and `jobs.test.ts` pass unchanged; full server suite is 101/101 (up from
+  75 before this slice).
 
 ## 10. Incremental implementation slices
 
 Each slice should land as its own small, independently-verified PR — no slice should require the
 next one to already exist to be mergeable and useful.
 
-1. **Slice 1 — Sandbox spike + single-check execution.** Resolve the open question in §1/§4:
-   can the target repo's tree be materialized locally (tarball download via Octokit vs.
-   reconstructing from `getFileTree`/`getFileContent`) and can `npm install` + one script (start
-   with `lint`, cheapest to run) execute successfully in the Railway container within a job's
-   lifetime? Persist a single real `qa_runs` row with just `lint_passed`/`lint_output` populated;
-   leave build/typecheck/test as `NULL` for now. No repair loop yet — a lint failure just logs
-   and still proceeds to `preview` (matching today's always-pass behavior for those three checks,
-   so this slice is a strict, low-risk improvement over the placeholder, not a new way to block
-   jobs).
+1. ~~**Slice 1 — Sandbox spike + single-check execution.**~~ **Done (2026-07-06,
+   `feature/m4-verification-slice-1`).** Resolved via `github.getRepoFiles` (reconstructing from
+   the existing Contents/Trees API fetcher, not a tarball or local `git clone` — no new `git`
+   CLI dependency needed). `npm install`/`npm ci` + `npm run lint` execute via injectable
+   `execFile` (`server/src/services/verification/checks.ts`) against the materialized workspace
+   (`workspace.ts`), tied together and persisted to a real `qa_runs` row by
+   `verify.ts`/`runVerification`. Confirmed: no repair loop, no gating — a lint failure still
+   proceeds to `preview`, matching this slice's intentionally low-risk scope. **Not yet
+   confirmed against a real Railway deployment** (this environment has no live Postgres/GitHub
+   token/Railway container to run an actual job end-to-end against) — verified via the 26 new
+   unit tests (§9) with injected fakes for the GitHub fetch, `execFile`, and DB persistence
+   layers, plus `tsc`/build passing. A real end-to-end run against a live job is still
+   recommended before treating slice 1 as fully proven in production.
 2. **Slice 2 — All four checks, still no repair loop.** Extend slice 1's mechanism to typecheck/
    test/build, each independently detected and skippable (§4). A **Failed** outcome now blocks
    progression to `review` (job goes to `failed` instead) — this is the first slice that
@@ -282,8 +305,11 @@ Per-slice, plus the milestone-level criteria they roll up to
 - **Slice 1 done when:** a real `npm run lint` (or equivalent detected script) executes against
   a materialized copy of a job's feature branch, and its actual pass/fail + output is persisted
   to a real `qa_runs` row — not a log line, an actual row with `lint_passed` set from a real exit
-  code. Verified by a passing test suite (§9) plus one manual run against a real job with a
-  known-bad lint error, showing `lint_passed = false` in the row.
+  code. **Status: code complete, verified by unit tests with injected fakes (§9), not yet by a
+  manual run against a real job.** No live Postgres/GitHub token/Railway environment was
+  available in this session to run an actual job end-to-end; the "known-bad lint error → real
+  `lint_passed = false` row" manual check from the original acceptance bar is still outstanding
+  and should be done in a real environment before slice 2 builds further on top of this.
 - **Slice 2 done when:** all four checks run (or are cleanly skipped per §4), a **Failed**
   outcome prevents `review`, and `GET /api/jobs/:id/qa` returns the real row(s).
 - **Slice 3 done when:** a job with a known, fixable lint error is repaired within the bounded
