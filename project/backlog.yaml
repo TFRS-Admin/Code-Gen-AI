@@ -231,7 +231,12 @@ epics:
           against genuine tool execution and persistence. Still not run against a live job
           reaching `review`: this session's GITHUB_TOKEN is a non-functional session proxy and
           no provider API key was available — see RISK-18's remediation_checklist in
-          project/risks.yaml.
+          project/risks.yaml. A further follow-up (feature/m4-final-railway-e2e-proof,
+          2026-07-06) attempted this against Railway specifically, since real credentials are
+          understood to be configured there, but found this Claude Code Remote session has no
+          technical channel to Railway at all (no CLI, no API token, no MCP connector, no
+          documented deployment URL) — see RISK-18's railway_access_prerequisites. TICKET-032
+          remains in_progress.
       - id: TICKET-033
         title: "Add review decisions"
         status: todo

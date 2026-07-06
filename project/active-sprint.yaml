@@ -24,9 +24,12 @@ sprint:
     observing BUILD fail with a genuine 401 Bad credentials from the real GitHub API before
     ever reaching QA; separately, the verification+repair mechanics were proven against
     genuinely real npm/eslint execution and real qa_runs persistence, with
-    decideRepairAction() fed real (not fixture) VerificationResults. The remaining gap is
-    now precisely two things: a working GitHub PAT and a real provider API key, neither
-    available in this environment — see RISK-18's remediation checklist. M3.2's
+    decideRepairAction() fed real (not fixture) VerificationResults. A follow-up attempt
+    pointed at Railway (where real credentials are understood to exist) but found this
+    session has no technical channel to Railway at all (no CLI, no API token, no MCP
+    connector, no documented deployment URL) — a harder, environmental blocker rather than a
+    credentials-are-bad one. M4 remains in_progress, not moved toward M5. See RISK-18's
+    remediation_checklist and railway_access_prerequisites in project/risks.yaml. M3.2's
     ComponentHarvester.jsx wiring audit (SPR-1) and candidate-scoring scope decision (SPR-2)
     remain open.
   milestones_in_focus: [M3.2, M3.3, M4]
@@ -214,6 +217,16 @@ sprint:
         assumption across M4, now narrowed to precisely two things: a real GitHub PAT (for
         branch/commit operations) and a real provider API key (for genuine fix content) — see
         RISK-18's remediation_checklist in project/risks.yaml.
+
+        Railway attempt (2026-07-06, feature/m4-final-railway-e2e-proof): pointed at Railway
+        specifically, since a real GitHub token and provider key are understood to be configured
+        there. Found a harder blocker: this session has no technical channel to Railway at all —
+        no CLI, no API token, no MCP connector (confirmed via ListConnectors), no documented
+        deployment URL anywhere in the repo, no GitHub Actions/Deployments-API path to discover
+        one. Still in_progress, not done — this remains the single biggest open item for M4, now
+        additionally blocked on Railway access itself, not just on which credentials to use once
+        connected. See RISK-18's railway_access_prerequisites in project/risks.yaml for what a
+        future session or human operator needs to actually close this.
 
   out_of_sprint_but_flagged:
     - "Plan-schema validation and provider_calls logging — cross-cutting, not scheduled to a milestone."
