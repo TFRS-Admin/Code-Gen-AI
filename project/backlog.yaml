@@ -107,8 +107,14 @@ epics:
         note: "No revision field/logic found; only ever inserts a single plans row per job."
       - id: TICKET-019
         title: "Implement repair attempt tracking"
-        status: todo
-        evidence: []
+        status: done
+        evidence: ["server/src/services/orchestrator/index.ts", "server/src/services/orchestrator/index.test.ts"]
+        note: >
+          M4 slice 3 (2026-07-06, feature/m4-verification-slice-3): decideRepairAction() counts
+          repair attempts from existing qa_runs rows for the job (qaRunsCountForJob - 1 = repairs
+          used so far) — no new column, no in-memory-only counter. Capped at 2. Mechanics are
+          unit-tested (10 tests); not yet exercised against a real repeated-failure job in a live
+          environment.
       - id: TICKET-020
         title: "Add lifecycle SSE events"
         status: todo
@@ -203,15 +209,14 @@ epics:
           - "server/src/routes/jobs.ts"
         note: >
           qa_runs table exists (001_initial.sql:44-56) and now has a real writer for all four
-          checks: M4 slice 2 (2026-07-06, feature/m4-verification-slice-2) runs
-          lint/build/typecheck/test (each independently detected/skippable) against a
-          materialized copy of the feature branch and persists one full qa_runs row per job.
-          The orchestrator now gates on the result — a failed/errored check marks the job
-          'failed' instead of proceeding to preview/review; a skipped check does not block it.
-          GET /api/jobs/:id/qa exposes the results. Still no repair loop (slice 3) — a failing
-          job currently just stops, it doesn't get fixed automatically. Not yet run against a
-          live job in a real environment (no Postgres/GitHub token/Railway available in this
-          session).
+          checks plus a bounded repair loop: M4 slices 2-3 (2026-07-06,
+          feature/m4-verification-slice-3) run lint/build/typecheck/test (each independently
+          detected/skippable) against a materialized copy of the feature branch, persist one
+          full qa_runs row per attempt, and repair a failed check up to 2 times (feeding the
+          exact failure back to the provider) before failing the job. An errored check still
+          fails immediately, never repaired. GET /api/jobs/:id/qa exposes the results. Not yet
+          run against a live job in a real environment (no Postgres/GitHub token/provider API
+          key available in this session) — see RISK-18 in project/risks.yaml.
       - id: TICKET-033
         title: "Add review decisions"
         status: todo
@@ -231,9 +236,9 @@ epics:
         evidence: []
 
 counts:
-  done: 18
+  done: 19
   in_progress: 4
-  todo: 11
+  todo: 10
   superseded: 2
   needs_audit: 1
   total: 36

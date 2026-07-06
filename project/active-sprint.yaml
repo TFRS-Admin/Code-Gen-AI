@@ -16,10 +16,11 @@ sprint:
   goal: >
     Close out M3.2 Component Adaptation and begin M3.3 Manifest Persistence. M3.3 is now
     implemented (SPR-3 through SPR-6 done) and merged to main (PR #23). M4 Verification
-    Engine kickoff planning (SPR-7), slice 1 (SPR-8), and slice 2 (SPR-9) are all done, on
-    feature/m4-verification-slice-2; slice 3 (bounded repair loop, SPR-10) is next. M3.2's
-    ComponentHarvester.jsx wiring audit (SPR-1) and candidate-scoring scope decision (SPR-2)
-    remain open.
+    Engine kickoff planning (SPR-7), slice 1 (SPR-8), slice 2 (SPR-9), and slice 3 (bounded
+    repair loop, SPR-10) are all done, on feature/m4-verification-slice-3; slice 4
+    (observability polish, SPR-11) is next, alongside a real end-to-end verification run
+    (SPR-12) that has not happened in any session yet. M3.2's ComponentHarvester.jsx wiring
+    audit (SPR-1) and candidate-scoring scope decision (SPR-2) remain open.
   milestones_in_focus: [M3.2, M3.3, M4]
 
   items:
@@ -136,11 +137,38 @@ sprint:
     - id: SPR-10
       title: "Implement M4 slice 3: bounded repair loop"
       milestone: M4
+      status: done
+      evidence:
+        - "server/src/services/orchestrator/index.ts"
+        - "server/src/services/orchestrator/index.test.ts"
+      note: >
+        decideRepairAction() (pure, exported) decides proceed/repair/fail from a verification
+        result + qa_runs row count: a failed check repairs up to 2 attempts; an errored check
+        never repairs (fails immediately); a skipped check never blocks. generateAndCommitFiles()
+        is shared by BUILD and REPAIR so the repair attempt reuses the same provider-call-then-
+        commit flow, with a dedicated REPAIR_STAGE_INSTRUCTIONS prompt (plan + files generated
+        so far + exact failing output, asking for a minimal fix). No qa_runs migration. 10 new
+        tests against the pure decision function (118/118 server tests passing, up from 108).
+        Repair mechanics are unit-tested; NOT yet demonstrated fixing a real failure with a real
+        provider — no live Postgres/GitHub token/provider API key available in this session.
+
+    - id: SPR-11
+      title: "Implement M4 slice 4: observability polish + scope decision on remaining checks"
+      milestone: M4
       status: todo
-      blocked_by: [SPR-9]
-      reference: "docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md sections 6 and 10"
+      blocked_by: [SPR-10]
+      reference: "docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md section 10"
+
+    - id: SPR-12
+      title: "Manually verify M4 slices 1-3 end-to-end against a real job"
+      milestone: M4
+      status: todo
+      note: >
+        Requires a live Postgres, GitHub token, and provider API key — none available in any
+        session so far. Should confirm: a real branch materializes, npm install/lint/build/
+        typecheck/test actually execute, a real failing check triggers a real repair attempt,
+        and the repaired code actually passes re-verification. This is the single biggest
+        unverified assumption across M4 slices 1-3.
 
   out_of_sprint_but_flagged:
-    - "M4 slice 4 (observability polish) — sequenced after slice 3 lands, per docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md section 10."
-    - "A manual end-to-end run of M4 slices 1-2 against a real job (live Postgres/GitHub token/Railway) — not possible in this session, should happen before slice 3 builds further on top."
     - "Plan-schema validation and provider_calls logging — cross-cutting, not scheduled to a milestone."
