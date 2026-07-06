@@ -38,8 +38,19 @@ vi.mock("@/components/dashboard/Sidebar", () => ({
   ),
 }));
 
+// Exposes just the props this suite needs to assert on (which tab is active,
+// and what preview data Dashboard computed) — RightPanel's own rendering is
+// already covered by RightPanel.test.jsx/PreviewPanel.test.jsx.
 vi.mock("@/components/dashboard/RightPanel", () => ({
-  default: () => <div data-testid="right-panel-stub" />,
+  default: ({ activeTab, activeJob, jobPreview }) => (
+    <div data-testid="right-panel-stub">
+      <span data-testid="active-tab">{activeTab}</span>
+      <span data-testid="has-active-job">{activeJob ? "yes" : "no"}</span>
+      <span data-testid="preview-status">{jobPreview?.status || ""}</span>
+      <span data-testid="preview-url">{jobPreview?.previewUrl || ""}</span>
+      <span data-testid="preview-loading">{jobPreview?.loading ? "loading" : ""}</span>
+    </div>
+  ),
 }));
 
 vi.mock("@/components/ui/resizable", () => ({
@@ -165,5 +176,69 @@ describe("Dashboard job submission", () => {
   it("requires a repo and branch to be selected before sending", async () => {
     renderDashboard();
     expect(await screen.findByPlaceholderText(/select a repository to get started/i)).toBeDisabled();
+  });
+});
+
+describe("Dashboard: preview opens automatically on app/project selection", () => {
+  it("switches to the Preview tab as soon as a repo is selected", async () => {
+    const user = userEvent.setup();
+    renderDashboard();
+
+    expect(screen.getByTestId("active-tab")).toHaveTextContent("files");
+    await user.click(await screen.findByText(REPO.full_name));
+
+    await waitFor(() => expect(screen.getByTestId("active-tab")).toHaveTextContent("preview"));
+  });
+
+  it("loads an existing preview URL immediately when an existing job is restored on load", async () => {
+    BlairAPI.listJobs.mockResolvedValue([
+      { id: "job-1", status: "shipped", repo_url: "https://github.com/acme/widgets", pr_url: null },
+    ]);
+    BlairAPI.getPreview.mockResolvedValue({
+      previewUrl: "https://preview.example.com/job-1",
+      status: "ready",
+      lastUpdated: "2026-07-06T00:00:00.000Z",
+    });
+
+    renderDashboard();
+
+    await waitFor(() => expect(screen.getByTestId("active-tab")).toHaveTextContent("preview"));
+    await waitFor(() => expect(screen.getByTestId("preview-url")).toHaveTextContent("https://preview.example.com/job-1"));
+    expect(screen.getByTestId("preview-status")).toHaveTextContent("ready");
+  });
+
+  it("shows the loading state when the restored job's preview isn't ready yet", async () => {
+    BlairAPI.listJobs.mockResolvedValue([
+      { id: "job-2", status: "shipped", repo_url: "https://github.com/acme/widgets" },
+    ]);
+    BlairAPI.getPreview.mockResolvedValue({ previewUrl: null, status: "building", lastUpdated: null });
+
+    renderDashboard();
+
+    await waitFor(() => expect(screen.getByTestId("active-tab")).toHaveTextContent("preview"));
+    expect(screen.getByTestId("preview-status")).toHaveTextContent("building");
+    expect(screen.getByTestId("preview-url")).toHaveTextContent("");
+  });
+
+  it("does not crash when the restored job's preview data fails to load", async () => {
+    BlairAPI.listJobs.mockResolvedValue([
+      { id: "job-3", status: "shipped", repo_url: "https://github.com/acme/widgets" },
+    ]);
+    BlairAPI.getPreview.mockRejectedValue(new Error("Preview service unavailable"));
+
+    renderDashboard();
+
+    await waitFor(() => expect(screen.getByTestId("active-tab")).toHaveTextContent("preview"));
+    expect(screen.getByTestId("has-active-job")).toHaveTextContent("yes");
+    expect(screen.getByTestId("right-panel-stub")).toBeInTheDocument();
+  });
+
+  it("does not crash and stays on the Files tab when there is no repo and no job yet", async () => {
+    BlairAPI.listJobs.mockResolvedValue([]);
+    renderDashboard();
+
+    expect(await screen.findByTestId("right-panel-stub")).toBeInTheDocument();
+    expect(screen.getByTestId("active-tab")).toHaveTextContent("files");
+    expect(screen.getByTestId("has-active-job")).toHaveTextContent("no");
   });
 });

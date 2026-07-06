@@ -177,6 +177,10 @@ export default function Dashboard() {
           const job = jobs[0];
           setActiveJob(job);
           fetchPreview(job.id);
+          // Restoring an existing job is "opening" it — surface its live
+          // preview immediately instead of leaving the Files tab showing.
+          setPreviewSource("job");
+          setRightPanelTab("preview");
           const terminal = TERMINAL_STATUSES.includes(job.status);
           const msgId = newMessageId("assistant");
           setMessages([
@@ -243,9 +247,11 @@ export default function Dashboard() {
       setPreviewData(null);
       setPreviewError(null);
       setSubmitError(null);
-      setRightPanelTab("files");
       setPreviewSource("repo");
     }
+    // Opening/selecting a repo (first pick or a switch) should surface its
+    // live preview immediately rather than requiring a manual tab click.
+    setRightPanelTab("preview");
 
     let cancelled = false;
     setSelectedBranch("");
