@@ -114,12 +114,17 @@ function passedFromOutcome(outcome: CheckResult['outcome']): boolean | null {
   return null; // 'errored' or 'skipped' — not a real pass/fail signal
 }
 
+// durationMs is `null` (not 0) for both: neither actually invoked a command
+// (see checks.ts's CheckResult doc — an install/materialization failure
+// upstream of the check running, or the check never being attempted at all),
+// so there is no elapsed time to report, and `null` keeps that distinct from
+// "ran in 0ms".
 function erroredResult(message: string): CheckResult {
-  return { outcome: 'errored', output: message, exitCode: null };
+  return { outcome: 'errored', output: message, exitCode: null, durationMs: null };
 }
 
 function skippedResult(): CheckResult {
-  return { outcome: 'skipped', output: '', exitCode: null };
+  return { outcome: 'skipped', output: '', exitCode: null, durationMs: null };
 }
 
 function allChecks(build: (name: CheckName) => CheckResult): CheckResults {

@@ -9,6 +9,7 @@
 | ADR-0005 | Postgres-compatible persistence | Accepted |
 | ADR-0006 | WebContainers instant repo preview | Accepted |
 | ADR-0007 | Manifest persistence data model | Accepted |
+| ADR-0008 | M4 verification engine scope boundaries | Accepted |
 
 ## ADR template
 

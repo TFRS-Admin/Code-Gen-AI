@@ -80,6 +80,34 @@ passing one in this session** (no live provider/Postgres/GitHub token available)
 specific outstanding gap before M4's "repair fixes at least one known import/build error" exit
 criterion can be marked met. See `docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md` §6/§10/§11.
 
+**Update (2026-07-06, M4 slice 4 implemented):** On `feature/m4-verification-slice-4` (from
+`main`, which already contains slice 3 via merged PR #27): two changes. First,
+`adr/0008-m4-verification-scope-boundaries.md` (Accepted) makes the four open scope questions
+slice 3 left unanswered explicit and final: preview-error-triggered repair — **deferred** (no
+capture mechanism exists yet, and it would fire from a different pipeline stage than the QA-step
+repair loop); accessibility smoke checks — **deferred** (needs a running preview instance to test
+against, not a `package.json` script, a materially larger scope than the current check model);
+license checks — **deferred, out of the verification engine's scope entirely** (already owned by
+M3.3/RISK-8/RISK-3 as a harvester concern, not duplicated here); structured timing — **added now,
+in-memory only**. Second, per that fourth decision,
+`server/src/services/verification/checks.ts`'s `CheckResult` gained a `durationMs: number | null`
+field, measured around `runCommand`/`runInstall`'s `exec()` calls — `null` only when a check never
+actually ran (skipped, or an upstream failure like a failed install or workspace materialization
+that never reached the command); every check that actually executed (passed, failed, or errored
+via timeout/spawn failure) reports a real elapsed value. Not persisted to `qa_runs` — no migration,
+per ADR-0008 and the ADR-0007 lean-schema precedent (no consumer of a `duration_ms` column exists
+yet). Also this session made real, partial progress on RISK-18/SPR-12 (the "real repair
+demonstrated" gap): with a locally-started Postgres instance, all 5 migrations were applied for
+the first time in this project's history and `persistQaRun`/`listQaRuns` were exercised against a
+genuine database (not injected fakes) via a disposable script, confirming the schema and
+persistence-layer code work in practice. The GitHub-API and real-provider legs of a full
+end-to-end job remain blocked in this environment: the session's `GITHUB_TOKEN` is a Claude Code
+proxy placeholder, confirmed non-functional against the real GitHub API (`403` — "GitHub access
+is not enabled for this session"), and no `OPENAI_API_KEY`/`ANTHROPIC_API_KEY` is present. RISK-18
+is updated to reflect DB-layer verification as done and the exact credential blockers, rather than
+claimed fully resolved. Timing tests updated/added across `checks.test.ts` and `verify.test.ts`
+(119/119 server tests passing, up from 118 after slice 3).
+
 This document does not replace the design/spec suite in `docs/00-documentation-map.md` — it
 tracks *status and sequencing* against that suite, and records where the running code has
 diverged from it.
@@ -232,13 +260,17 @@ form):
    `contracts/component-manifest.schema.json`, wired into the `/api/adapt` response path
    (`server/src/routes/adapt.ts`). Candidate scoring (previously item 1's open question) is
    still deferred — the manifest `score` field ships as a fixed placeholder (RISK-14).
-3. **M4 Verification / Repair Loop** — plan written
-   (`docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md`, 4 incremental slices); **slices 1-3
+3. ~~**M4 Verification / Repair Loop**~~ **Done** — plan written
+   (`docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md`, 4 incremental slices); **all 4 slices
    done** (all four checks, `qa_runs` persistence, pipeline gating, `GET /api/jobs/:id/qa`,
    bounded repair loop feeding failures back to the provider per
-   `docs/08-live-preview-runtime.md:134-142`, `server/src/services/verification/`). Remaining:
-   slice 4 (observability polish); also outstanding — demonstrating the repair loop actually
-   fixing a real failure against a real provider (not yet done in any session).
+   `docs/08-live-preview-runtime.md:134-142`, `server/src/services/verification/`; slice 4 added
+   in-memory `durationMs` timing and closed the four open scope questions via
+   `adr/0008-m4-verification-scope-boundaries.md`). Remaining, tracked as RISK-18/SPR-12, not a
+   slice: demonstrating the repair loop actually fixing a real failure against a real provider —
+   partially advanced this session (the DB persistence layer was verified for real against a live
+   Postgres instance for the first time), but still blocked on a usable GitHub token and a
+   provider API key in this environment.
 4. **M5 Review / Export / PR Workflow** — formalize the review step (checklist, decision
    record), add ZIP/Git-patch export with checksums and an export-approval guard
    (`docs/12-testing-quality-gates.md:84-91`).
@@ -256,12 +288,15 @@ match the shipped architecture instead of the original target design.
 See `project/active-sprint.yaml` for the structured version. Summary: **M3.3 Manifest
 Persistence** is implemented and merged to `main` (PR #23); its sprint items (SPR-3 through
 SPR-6) are done. **M4 Verification Engine** kickoff planning (SPR-7), slice 1 (SPR-8), slice 2
-(SPR-9), and slice 3 (bounded repair loop, SPR-10) are all done
-(`feature/m4-verification-slice-3`); slice 4 (observability polish, SPR-11) is next, alongside
-demonstrating the repair loop against a real provider. **M3.2 Component Adaptation** close-out
-(SPR-1 `ComponentHarvester.jsx` wiring audit, SPR-2 scoring scope decision) remains open. No
-sprint dates are asserted here (none found in the repo); `project/active-sprint.yaml` marks the
-window as `needs-audit`.
+(SPR-9), slice 3 (bounded repair loop, SPR-10), and slice 4 (timing + scope decisions, SPR-11)
+are all done (merged to `main` through PR #27 for slice 3; slice 4 on
+`feature/m4-verification-slice-4`). SPR-12 (manual end-to-end verification against a real job) is
+**partially done**: the DB persistence layer was exercised for real against a live Postgres
+instance this session; the GitHub-API and real-provider legs remain blocked (no usable GitHub
+token, no provider API key in this environment) and are carried forward, not closed. **M3.2
+Component Adaptation** close-out (SPR-1 `ComponentHarvester.jsx` wiring audit, SPR-2 scoring
+scope decision) remains open. No sprint dates are asserted here (none found in the repo);
+`project/active-sprint.yaml` marks the window as `needs-audit`.
 
 ## 7. Verification gates
 
@@ -287,10 +322,15 @@ Full register with probability/impact/mitigation in `project/risks.yaml`. Carrie
   any real lint/build/typecheck/test signal~~ **Resolved (M4 slices 1-3, 2026-07-06):** all four
   checks now run for real; a failed check gets up to 2 repair attempts (feeding the exact
   failure back to the provider); an errored check fails the job immediately (never repaired).
-  Residual risk: the repair loop's *mechanics* are unit-tested, but no real LLM has actually
-  fixed a real failing check in any session yet (no live provider/Postgres/GitHub token
-  available) — until that's demonstrated, treat "repair fixes at least one known import/build
-  error" (an M4 exit criterion) as unverified in practice, not just unimplemented.
+  Residual risk, narrowed (M4 slice 4, 2026-07-06): the repair loop's *mechanics* are
+  unit-tested, and the `qa_runs` persistence layer is now confirmed working against a genuine
+  Postgres instance (not just injected fakes) for the first time, but no real LLM call has
+  actually fixed a real failing check in any session yet — this environment's `GITHUB_TOKEN` is a
+  non-functional Claude Code session proxy placeholder (confirmed via a direct `403` against the
+  real GitHub API) and no provider API key is available, so the GitHub-API and real-provider legs
+  of a full end-to-end run remain blocked, not just undemonstrated. Treat "repair fixes at least
+  one known import/build error" (an M4 exit criterion) as unverified in practice until an
+  environment with those credentials runs SPR-12.
 - Documentation drift: three design docs (`08`, `09`, `10`) describe a materially different
   architecture than what's running, which will mislead new contractors/agents who read docs
   before code (confirmed gap, §2.2.1-3).
@@ -328,6 +368,13 @@ Full register with probability/impact/mitigation in `project/risks.yaml`. Carrie
 - `component_manifests` (M3.3) has not been exercised against a live Postgres instance in this
   environment — verified via type-checking, `npm run build`, and pure-function mapping-level
   round-trip tests only (same gap `registry_components` already has, just newly documented).
+- No preview runtime/console error capture: neither WebContainers preview nor the Railway
+  preview surface persists a browser error log anywhere in `server/src` (confirmed by grep; see
+  §7 Gate 3 and `project/milestones.yaml` M2's "No secrets in preview bundle" criterion, marked
+  `met: unknown`). This is the specific gap that keeps `docs/08-live-preview-runtime.md`'s
+  preview-error-triggered repair loop out of M4 scope
+  (`adr/0008-m4-verification-scope-boundaries.md` §1) — there's no signal source for such a
+  repair trigger to consume yet.
 
 ## 10. Open questions
 
@@ -380,24 +427,33 @@ Recommended order for the next agent, most-blocking first:
    ~~**M4 slice 3**~~ **Done** — bounded repair loop (`decideRepairAction()`): a **Failed**
    outcome (not **Errored**) gets up to 2 repair attempts, feeding the exact failing output back
    into a shared BUILD/REPAIR provider-call-then-commit flow, capped by counting `qa_runs` rows
-   — see the implementation update banners at the top of this document. Still outstanding: a
-   manual end-to-end run against a real job in an environment with a live Postgres/GitHub
-   token/Railway deploy/provider API key (§11 of the plan doc) — not possible in this session,
-   carried forward from slice 1. This is the single most important thing to verify before
+   — see the implementation update banners at the top of this document.
+   ~~**M4 slice 4**~~ **Done** — `adr/0008-m4-verification-scope-boundaries.md` (Accepted) makes
+   the four open scope questions final (preview-error repair deferred, accessibility smoke
+   deferred, license checks deferred/out-of-scope, structured timing added now); `CheckResult`
+   gained an in-memory `durationMs` field (no `qa_runs` migration, per the ADR). Also this session
+   ran the DB persistence layer for real against a live local Postgres instance (all 5 migrations
+   applied, `persistQaRun`/`listQaRuns` round-tripped correctly) — the first time any session has
+   exercised that layer against a genuine database rather than injected fakes. Still outstanding,
+   tracked as RISK-18/SPR-12, not a slice: a full manual end-to-end run against a real job needs a
+   working GitHub token (this environment's `GITHUB_TOKEN` is a non-functional session proxy
+   placeholder, confirmed via a direct `403`) and a provider API key (none available) — neither
+   was obtainable in this session. This remains the single most important thing to verify before
    treating M4 as functionally complete — the repair loop's *decision logic* is thoroughly
-   tested, but whether a real LLM call actually produces a working fix is unverified.
-   **Next: M4 slice 4** — observability polish (structured audit events already exist as of
-   slice 3; slice 4 is about `duration_ms`/`command` columns if the API surface wants them) and
-   an explicit scope decision on preview-error-triggered repair / "Should"-tier checks
-   (`docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md` §10, slice 4).
+   tested and the DB layer is now proven, but whether a real LLM call actually produces a working
+   fix, committed via a real GitHub token, is still unverified.
 5. **Candidate scoring (TICKET-029)**: replace the fixed placeholder scores in
    `server/src/services/harvester/manifest-store.ts` with the weighted 0-100 model from
    `docs/06-component-harvester.md:49-65` (RISK-14) — not blocking, but the next natural
    improvement to M3.3's output quality.
 6. Everything else in §5 (roadmap) in the order listed there.
 
-Concretely, the single highest-value next issue is **verifying M4 slices 1-3 against a real
-job** (live Postgres/GitHub token/Railway/provider) — every slice so far has been verified via
-unit tests with injected fakes only; nothing has confirmed the actual end-to-end behavior
-(materializing a real branch, running real npm commands, a real LLM producing a real fix) works
-in production. Slice 4 (observability polish) is lower-value than closing this verification gap.
+Concretely, the single highest-value next issue is **verifying M4 end-to-end against a real
+job** (GitHub token + Railway + provider API key — Postgres is now confirmed working). All four
+slices are implemented and unit-tested with injected fakes; this session additionally proved the
+`qa_runs` persistence layer works against a genuine Postgres instance, narrowing but not closing
+RISK-18/SPR-12. What remains unconfirmed is specifically the GitHub-API and real-provider legs:
+materializing a real branch through a working token, a real LLM producing a real fix, and that
+fix being committed and re-verified in production. This requires an environment with a real
+`GITHUB_TOKEN`/PAT and an `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`, neither of which this session
+had access to.
