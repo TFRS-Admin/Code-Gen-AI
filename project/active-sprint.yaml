@@ -17,13 +17,18 @@ sprint:
     Close out M3.2 Component Adaptation and begin M3.3 Manifest Persistence. M3.3 is now
     implemented (SPR-3 through SPR-6 done) and merged to main (PR #23). M4 Verification
     Engine kickoff planning (SPR-7), slice 1 (SPR-8), slice 2 (SPR-9), slice 3 (bounded
-    repair loop, SPR-10), and slice 4 (timing + scope decisions, SPR-11) are all done —
-    slice 3 merged to main via PR #27, slice 4 on feature/m4-verification-slice-4. SPR-12
-    (real end-to-end verification run) is now partially done: the qa_runs DB persistence
-    layer was exercised for real against a live local Postgres instance this session; the
-    GitHub-API and real-provider legs remain blocked (no usable GitHub token, no provider
-    API key in this environment). M3.2's ComponentHarvester.jsx wiring audit (SPR-1) and
-    candidate-scoring scope decision (SPR-2) remain open.
+    repair loop, SPR-10), and slice 4 (timing + scope decisions, SPR-11) are all done and
+    merged to main (PR #27, PR #28). SPR-12 (real end-to-end verification run) is further
+    narrowed but still not fully closed: this session ran the real server against a real
+    local Postgres instance and drove a real job through the actual HTTP API, directly
+    observing BUILD fail with a genuine 401 Bad credentials from the real GitHub API before
+    ever reaching QA; separately, the verification+repair mechanics were proven against
+    genuinely real npm/eslint execution and real qa_runs persistence, with
+    decideRepairAction() fed real (not fixture) VerificationResults. The remaining gap is
+    now precisely two things: a working GitHub PAT and a real provider API key, neither
+    available in this environment — see RISK-18's remediation checklist. M3.2's
+    ComponentHarvester.jsx wiring audit (SPR-1) and candidate-scoring scope decision (SPR-2)
+    remain open.
   milestones_in_focus: [M3.2, M3.3, M4]
 
   items:
@@ -179,19 +184,36 @@ sprint:
       title: "Manually verify M4 slices 1-3 end-to-end against a real job"
       milestone: M4
       status: in_progress
+      evidence:
+        - "server/src/services/verification/verify.ts (persistQaRun, listQaRuns, runVerification)"
+        - "server/src/services/orchestrator/index.ts (decideRepairAction)"
+        - "server/src/routes/generations.ts (POST /api/generations, real job creation)"
       note: >
         Partially done (M4 slice 4, 2026-07-06): with a manually-started local Postgres
         instance, all 5 migrations were applied for the first time in this project's history,
         and persistQaRun/listQaRuns were exercised against a genuine database (not injected
         fakes) via a disposable script — confirmed correct round-trip behavior and
-        most-recent-first ordering. Still blocked: this session's GITHUB_TOKEN is a
-        non-functional Claude Code session proxy placeholder (confirmed via a direct 403
-        against the real GitHub API — "GitHub access is not enabled for this session"), and no
-        OPENAI_API_KEY/ANTHROPIC_API_KEY is present, so the GitHub-API and real-provider legs of
-        a full end-to-end job (a real branch materializing, a real LLM producing a real fix,
-        that fix committed and re-verified) remain unverified. This is still the single biggest
-        unverified assumption across M4 — narrowed to specifically the GitHub/provider layers,
-        not the DB layer.
+        most-recent-first ordering.
+
+        Further narrowed (2026-07-06, feature/m4-e2e-verification-proof): the real Express
+        server was started against a real local Postgres instance and driven through its actual
+        HTTP API. POST /api/generations created a real job; PLAN ran for real (mock provider);
+        BUILD then failed with a genuine 401 Bad credentials from the real GitHub REST API at
+        the branch-creation call — captured directly from server logs and the job's persisted
+        error_message (status='failed'), confirmed via psql that zero qa_runs rows exist for
+        that job (it never reached QA). Separately, a real npm install + real npm run lint
+        against a demo repo with a genuine ESLint no-unused-vars violation exercised
+        runVerification()/decideRepairAction() for real: a real failure was detected and
+        persisted to qa_runs; decideRepairAction(), fed that real VerificationResult, correctly
+        chose to repair; after a fix (manual edit, standing in for an LLM patch — no provider
+        key available), a real re-run passed, persisted a second real qa_runs row, and
+        decideRepairAction() correctly chose to proceed — independently confirmed via direct SQL
+        query. Still blocked: this session's GITHUB_TOKEN produces a genuine 401 from the real
+        server's own Octokit client (not just a raw curl 403 as in the prior session), and no
+        OPENAI_API_KEY/ANTHROPIC_API_KEY is present. This is still the single biggest unverified
+        assumption across M4, now narrowed to precisely two things: a real GitHub PAT (for
+        branch/commit operations) and a real provider API key (for genuine fix content) — see
+        RISK-18's remediation_checklist in project/risks.yaml.
 
   out_of_sprint_but_flagged:
     - "Plan-schema validation and provider_calls logging — cross-cutting, not scheduled to a milestone."

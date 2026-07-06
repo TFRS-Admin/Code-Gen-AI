@@ -218,12 +218,20 @@ epics:
           fails immediately, never repaired. GET /api/jobs/:id/qa exposes the results. Slice 4
           added an in-memory durationMs field per check (checks.ts) and made four scope
           decisions final via ADR-0008 (preview-error repair, accessibility smoke, and license
-          checks all deferred; timing added, not persisted). This session ran the qa_runs
+          checks all deferred; timing added, not persisted). Slice 4 ran the qa_runs
           persistence layer for real against a live local Postgres instance (all 5 migrations
           applied, persistQaRun/listQaRuns round-tripped correctly) — the first time in this
-          project's history. Still not run against a live job end-to-end in a real environment:
-          this session's GITHUB_TOKEN is a non-functional session proxy placeholder and no
-          provider API key was available — see RISK-18 in project/risks.yaml.
+          project's history. A follow-up session (feature/m4-e2e-verification-proof, 2026-07-06)
+          drove a real job through the actual HTTP API against a real Postgres instance and
+          directly observed BUILD fail with a genuine 401 Bad credentials from the real GitHub
+          API before ever reaching QA (zero qa_runs rows for that job) — confirming the
+          GitHub-credential blocker from the real running application itself, not inferred.
+          Separately, real npm/eslint execution plus decideRepairAction() fed a real (not
+          fixture) VerificationResult proved the verification+repair mechanics work end-to-end
+          against genuine tool execution and persistence. Still not run against a live job
+          reaching `review`: this session's GITHUB_TOKEN is a non-functional session proxy and
+          no provider API key was available — see RISK-18's remediation_checklist in
+          project/risks.yaml.
       - id: TICKET-033
         title: "Add review decisions"
         status: todo

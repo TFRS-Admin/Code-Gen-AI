@@ -172,17 +172,26 @@ milestones:
         met: false
         evidence: []
         note: >
-          Not met. The repair loop's mechanics are implemented and unit-tested
-          (decideRepairAction, 10 tests). M4 slice 4 (2026-07-06) narrowed but did not close this
-          gap: the qa_runs DB persistence layer was exercised for real against a live local
-          Postgres instance (all 5 migrations applied, persistQaRun/listQaRuns round-tripped
-          correctly) — the first time in this project's history — but the GitHub-API and
-          real-provider legs remain unverified. This session's GITHUB_TOKEN is a non-functional
-          Claude Code session proxy placeholder (confirmed via a direct 403 against the real
-          GitHub API), and no OPENAI_API_KEY/ANTHROPIC_API_KEY was available, so no real fix has
-          actually been demonstrated turning a real failing check into a passing one. This is
-          still the single biggest unverified assumption in M4, now scoped specifically to the
-          GitHub/provider layers rather than the whole pipeline.
+          Still not met, but substantially narrowed (2026-07-06,
+          feature/m4-e2e-verification-proof). This session ran the real Express server against a
+          real local Postgres instance and posted a real job through POST /api/generations: PLAN
+          ran for real (mock provider), then BUILD's real GitHub branch-creation call failed with
+          a genuine `401 Bad credentials` from the real GitHub REST API (server logs:
+          "GitHub API error during getBranchSha(...): (status 401): Bad credentials") — the job
+          never reached the QA/verification step at all (confirmed: zero qa_runs rows for that
+          job). This is now a directly-observed failure from the real running application, not an
+          inferred one. Separately, this session proved the verification+repair *mechanics*
+          against genuinely real tool execution: a real `npm install` + real `npm run lint` (not
+          mocked) against a demo repo with an actual ESLint `no-unused-vars` violation produced a
+          real `failed` outcome, persisted to a real qa_runs row in the same live Postgres
+          instance; `decideRepairAction()` — called with that real VerificationResult, not a
+          hand-built fixture — correctly returned a `repair` decision; after applying a fix (a
+          manual edit standing in for a real LLM patch, since no provider key is available), a
+          real re-run of npm install/npm run lint genuinely passed, persisted a second real
+          qa_runs row, and `decideRepairAction()` correctly returned `proceed`. What remains
+          unverified is now precisely two things: (1) BUILD/REPAIR committing files back through
+          a real GitHub token, and (2) a real LLM (not the mock provider) producing the fix
+          content. See RISK-18 for the exact remediation checklist to close these.
       - criterion: "Reviewer can approve/request changes"
         met: needs-audit
         evidence: ["server/src/routes/jobs.ts:81-96 (approve only, no request-changes path found)"]
@@ -236,6 +245,23 @@ milestones:
       ordering confirmed) — narrowing RISK-18 to specifically the GitHub-API and real-provider
       legs, which remain blocked in this environment (non-functional GITHUB_TOKEN, no provider
       API key). 119/119 server tests passing, up from 118.
+
+      Real E2E verification attempt (2026-07-06, feature/m4-e2e-verification-proof): the real
+      Express server was started against a real local Postgres instance and driven through its
+      actual HTTP API. A real job posted to POST /api/generations ran PLAN for real, then failed
+      at BUILD's real GitHub branch-creation call with a genuine 401 Bad credentials from the
+      real GitHub REST API — captured directly from server logs and the job's persisted
+      error_message, not inferred. The job never reached QA (zero qa_runs rows). Separately, a
+      real npm install + real npm run lint against a demo repo with a genuine ESLint violation
+      exercised runVerification()/decideRepairAction() for real: a real failure was detected and
+      persisted, decideRepairAction() (fed the real result) correctly chose to repair, a real
+      fix made the real re-run pass, and decideRepairAction() then correctly chose to proceed —
+      all against the same live Postgres instance, confirmed independently via direct SQL query.
+      M4's 3 exit criteria remain unchanged (1 of 3 met) — the repair loop's mechanics are now
+      proven against genuine tool execution and genuine persistence, not just unit-test fakes,
+      but a full HTTP-API-triggered job reaching `review` still requires a working GitHub PAT
+      and a real provider API key, neither available in this environment. See RISK-18 for the
+      remediation checklist.
 
   - id: M5
     name: "Review / Export / PR Workflow"

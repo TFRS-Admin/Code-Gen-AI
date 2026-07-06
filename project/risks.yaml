@@ -302,12 +302,39 @@ risks:
       (server/src/db/migrations/*.sql) were applied for the first time in this project's
       history, and persistQaRun/listQaRuns (server/src/services/verification/verify.ts) were
       exercised via a disposable script against that genuine database — not injected fakes —
-      confirming correct round-trip behavior and most-recent-first ordering. The GitHub-API and
-      real-provider legs remain unverified and are now a distinct, confirmed blocker rather than
-      an untried one: this session's GITHUB_TOKEN environment variable is a Claude Code session
-      proxy placeholder, confirmed non-functional against the real GitHub API (direct request
-      returned 403 "GitHub access is not enabled for this session. An org admin must connect the
-      Claude GitHub App for this organization."), and neither OPENAI_API_KEY nor
+      confirming correct round-trip behavior and most-recent-first ordering.
+
+      Further narrowed (2026-07-06, feature/m4-e2e-verification-proof): the real Express server
+      was started against the same kind of live local Postgres instance and driven through its
+      actual HTTP API (POST /api/generations). A real job ran PLAN successfully (mock provider),
+      then failed at BUILD's real GitHub branch-creation call with a genuine `401 Bad
+      credentials` from the real GitHub REST API (server log: "GitHub API error during
+      getBranchSha(TFRS-Admin/Code-Gen-AI#main) (status 401): Bad credentials"; same error
+      persisted as the job's error_message in Postgres) — this is a directly observed failure
+      from the real running application's own Octokit client, not an inferred one, and it occurs
+      before the job ever reaches QA (confirmed: zero qa_runs rows for that job). Separately,
+      the verification+repair *mechanics* were proven against genuinely real tool execution in
+      the same session: a real `npm install` + real `npm run lint` (default execFileImpl, not
+      injected) against a demo repo with an actual ESLint `no-unused-vars` violation produced a
+      real `failed` outcome persisted to a real qa_runs row; `decideRepairAction()`, called with
+      that real VerificationResult (not a hand-built fixture), correctly returned a `repair`
+      decision; after a fix was applied (a manual edit standing in for a real LLM-produced patch,
+      since no provider key is available), a real re-run of npm install/npm run lint genuinely
+      passed, persisted a second real qa_runs row, and decideRepairAction() correctly returned
+      `proceed` — both qa_runs rows independently confirmed via a direct SQL query, not just the
+      application's own read path.
+
+      The GitHub-API and real-provider legs remain the confirmed, precise blockers: this
+      session's GITHUB_TOKEN environment variable is a Claude Code session proxy placeholder —
+      the real server, using this exact token, gets a genuine 401 from the real GitHub API (not
+      just a 403 from a raw curl test, as in the prior session) — and neither OPENAI_API_KEY nor
       ANTHROPIC_API_KEY is present in this environment. M4's "Repair fixes at least one known
       import/build error" exit criterion (project/milestones.yaml M4) still requires a full
       end-to-end run through those two layers and is not yet met.
+    remediation_checklist:
+      - "Obtain a real GitHub PAT (classic or fine-grained) with repo scope for a test repository the pipeline is allowed to branch/commit/open-PRs against; set it as GITHUB_TOKEN in the server's actual runtime environment (not the Claude Code session's own GITHUB_TOKEN, which is confirmed non-functional against the raw GitHub REST API — 401 Bad credentials)."
+      - "Obtain a real provider API key (OPENAI_API_KEY or ANTHROPIC_API_KEY) and set DEFAULT_PROVIDER to 'openai' or 'anthropic' (not 'mock'), so BUILD/REPAIR produce genuine LLM-generated content instead of the mock provider's canned string."
+      - "Point DATABASE_URL at a real (disposable/staging is fine) Postgres instance and apply server/src/db/migrations/*.sql (or npm run migrate against a built dist/) before starting the server."
+      - "Start the server (npm run build && npm start, or npm run dev) with all three of the above env vars set."
+      - "POST to /api/generations with a real connected repo URL/branch and a prompt targeting a deliberately fixable lint/build/typecheck error."
+      - "Poll GET /api/jobs/:id and GET /api/jobs/:id/qa until the job reaches a terminal or 'review' status; confirm the qa_runs history shows a failed -> repaired -> passed progression and that a real PR was opened."
