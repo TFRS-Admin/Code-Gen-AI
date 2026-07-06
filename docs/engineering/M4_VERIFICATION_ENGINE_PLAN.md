@@ -1,6 +1,7 @@
 # M4 Verification Engine — Kickoff Plan
 
-Status: **All 4 slices implemented (2026-07-06).** Owner: Full-stack/QA.
+Status: **All 4 slices implemented; real E2E attempt run and precisely blocked (2026-07-06).**
+Owner: Full-stack/QA.
 
 This plan grounds M4 ("Verification / Repair Loop") in what is actually running today, per
 `docs/engineering/ENGINEERING_MASTER_PLAN.md` §3/§5 and `project/milestones.yaml` M4. It
@@ -84,8 +85,48 @@ PR #27):
   passed/failed/errored check reports a numeric `durationMs` and every skipped (or
   never-invoked) check reports `null` (119/119 server tests passing, up from 118 after slice 3).
 
+**Real E2E verification attempt** (`feature/m4-e2e-verification-proof`, on top of slice 4, which
+merged to `main` via PR #28):
+
+- **Runtime prerequisites checked directly, not assumed:** a local Postgres 16 instance was
+  started and all 5 migrations applied cleanly (repeat of slice 4's finding, on a fresh
+  container). `GITHUB_TOKEN` is present but non-functional; no `OPENAI_API_KEY`/
+  `ANTHROPIC_API_KEY` is present. The real server (`npm run dev` equivalent, `tsx src/index.ts`)
+  boots successfully against the real Postgres instance with `DEFAULT_PROVIDER=mock`.
+- **A real job was driven through the actual HTTP API** (`POST /api/generations`, a real repo
+  URL, a real prompt) against the real Postgres instance — not a unit test, not a function call.
+  The job's PLAN step completed for real (mock provider). BUILD then called the real GitHub REST
+  API to create a feature branch and received a genuine `401 Bad credentials` — captured
+  verbatim from the running server's own log output and from the job's persisted
+  `error_message` column: `GitHub API error during getBranchSha(TFRS-Admin/Code-Gen-AI#main)
+  (status 401): Bad credentials`. The job's `status` column reads `failed`. Confirmed via direct
+  SQL query: **zero `qa_runs` rows exist for this job** — it never reached the QA/verification
+  step introduced by slices 1-3 at all. This is the same GitHub-credential blocker documented in
+  slice 4, now demonstrated by the real application itself (a genuine 401 from its own Octokit
+  client) rather than inferred from a standalone `curl` test against a different endpoint.
+- **The verification+repair mechanics were separately proven against genuinely real tool
+  execution.** A small demo repo (real `package.json`, real `.eslintrc.json`, a real
+  `no-unused-vars` violation, real `npm install`) was read via an injected `fetchRepoFiles` (the
+  one substitution — standing in for the blocked GitHub fetch) but everything downstream ran for
+  real: `runVerification()`'s default `execFileImpl` ran genuine `npm install` and `npm run
+  lint`; the real ESLint binary genuinely failed; the result was persisted via the real
+  `persistQaRun` to the same live Postgres instance. `decideRepairAction()` — called with that
+  *real* `VerificationResult` (not a hand-built fixture, unlike every existing unit test) —
+  correctly returned a `repair` decision. A fix was then applied directly to the file (the
+  second substitution — standing in for a real LLM-produced patch, since no provider key is
+  available) and verification re-ran for real: the real ESLint binary genuinely passed, a second
+  real `qa_runs` row was persisted, and `decideRepairAction()` correctly returned `proceed`. Both
+  rows were independently confirmed via a direct `psql` query, not just the application's own
+  read path.
+- **Net result:** the verification engine and repair-decision logic behave correctly against
+  genuine tool execution and genuine persistence — that gap is now closed. What remains
+  unverified is precisely the two credential-gated legs: BUILD/REPAIR's real GitHub commit-back,
+  and a real LLM producing the fix content. See `project/risks.yaml` RISK-18's
+  `remediation_checklist` for the exact steps to close this in an environment with those
+  credentials.
+
 The rest of this document (§2-§9) is unchanged from the original kickoff plan; §10-§11 are
-updated below to reflect slice 4 and the current verification status.
+updated below to reflect slice 4, the real E2E attempt, and the current verification status.
 
 ## 1. Current orchestrator QA placeholder — evidence
 
@@ -441,14 +482,32 @@ Per-slice, plus the milestone-level criteria they roll up to
   this session — but the GitHub-API and real-provider legs (a working `GITHUB_TOKEN`, a provider
   API key) were still unavailable, so this remains a documented blocker, not a demonstrated
   success.
+- **Real E2E verification attempt done when:** a real job is driven through the real HTTP API
+  against a real Postgres instance, and the exact point of any remaining failure is directly
+  observed (not inferred) and documented. **Status: done, blocker precisely identified.** A real
+  job run via `POST /api/generations` reached BUILD and failed with a genuine `401 Bad
+  credentials` from the real GitHub API at branch creation — captured from the running server's
+  own logs, never reaching QA (zero `qa_runs` rows, confirmed via direct SQL). Separately, the
+  verification+repair mechanics were proven against genuinely real `npm install`/`npm run lint`
+  execution and real Postgres persistence, with `decideRepairAction()` fed a real (not
+  hand-built) `VerificationResult` at both the failing and passing stages. The two substitutions
+  used (an injected `fetchRepoFiles` reading a local demo directory instead of calling the real
+  GitHub API, and a manual file fix standing in for a real LLM-produced patch) were necessary
+  specifically because this environment's `GITHUB_TOKEN` and provider API keys are confirmed
+  non-functional/absent — not a choice to skip realism elsewhere. **Remaining gap, remediable
+  with credentials this environment doesn't have:** a working GitHub PAT for BUILD/REPAIR's real
+  commit-back, and a real provider API key for genuine fix content — see
+  `project/risks.yaml` RISK-18's `remediation_checklist`.
 - **M4 milestone done when** (mirrors `project/milestones.yaml` M4's three exit criteria):
   "Verification failures produce repair context" — **met**: `buildRepairUserMessage()` gives the
   provider the plan, generated files, and exact failing output every repair attempt
   (`server/src/services/orchestrator/index.ts`, `server/src/services/orchestrator/index.test.ts`).
   "Repair fixes at least one known import/build error" — **not yet met**: requires demonstrating
   against a real, reproducible case with a real provider, not just asserting the mechanism
-  exists (see the slice 3 status note above) — narrowed but not closed by slice 4's real
-  Postgres verification (the DB layer is now proven; the GitHub/provider layers are not).
+  exists (see the slice 3 status note above) — narrowed further by the real E2E attempt above
+  (the verification+repair *mechanics* are now proven against genuine tool execution and
+  persistence; only the real-GitHub-commit and real-LLM-fix legs remain unverified, and the exact
+  reason why — a genuine 401 from the real application, not a hypothetical — is now documented).
   "Reviewer can approve/request changes" — already partially true today
   (`server/src/routes/jobs.ts:81-96` approve path exists); a `request-changes` counterpart may
   be its own small slice or explicitly deferred to M5's review-decision work, per the M4/M5

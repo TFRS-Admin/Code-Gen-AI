@@ -108,6 +108,35 @@ is updated to reflect DB-layer verification as done and the exact credential blo
 claimed fully resolved. Timing tests updated/added across `checks.test.ts` and `verify.test.ts`
 (119/119 server tests passing, up from 118 after slice 3).
 
+**Update (2026-07-06, real E2E verification attempt):** On `feature/m4-e2e-verification-proof`
+(from `main`, which contains slice 4 via merged PR #28): a real, direct attempt to close
+RISK-18/SPR-12. A local Postgres 16 instance was started and all 5 migrations applied cleanly
+(repeat of slice 4's finding, on a fresh container). The real Express server was then started
+against that instance and driven through its actual HTTP API: `POST /api/generations` created a
+real job; PLAN completed for real (mock provider, since no provider key exists); BUILD then made
+a real call to the GitHub REST API to create a feature branch and received a genuine `401 Bad
+credentials` — captured verbatim from the running server's own logs and the job's persisted
+`error_message`. The job's status is `failed`; a direct SQL query confirms zero `qa_runs` rows
+exist for it — it never reached the QA/verification step introduced by slices 1-3 at all. This
+is the same GitHub-credential blocker slice 4 documented, now demonstrated by the real running
+application's own Octokit client (a genuine 401) rather than inferred from a `curl` test against
+a different endpoint. Separately, the verification+repair *mechanics* were proven against
+genuinely real tool execution: a demo repo with a real, deliberately introduced ESLint
+`no-unused-vars` violation was verified via `runVerification()`'s real (non-injected)
+`execFileImpl` — a genuine `npm install` + `npm run lint` — persisting a real `failed` `qa_runs`
+row to the same live Postgres instance; `decideRepairAction()`, called with that *real*
+`VerificationResult` (not a hand-built fixture, unlike every existing unit test), correctly
+returned a `repair` decision. A fix was then applied directly (standing in for a real
+LLM-produced patch, since no provider key is available) and re-verification genuinely passed,
+persisting a second real `qa_runs` row and yielding a correct `proceed` decision — both rows
+independently confirmed via direct SQL. Net effect: the verification-engine and repair-decision
+*logic* are now proven against real tool execution and real persistence, closing that specific
+gap; what remains unverified is precisely BUILD/REPAIR's real GitHub commit-back and a real LLM
+producing fix content — both gated on credentials this environment does not have. See
+`project/risks.yaml` RISK-18's `remediation_checklist` for the exact steps to close this
+elsewhere. No server source code changed in this update — this was a verification-only session;
+docs/project-state files were updated to record the findings.
+
 This document does not replace the design/spec suite in `docs/00-documentation-map.md` — it
 tracks *status and sequencing* against that suite, and records where the running code has
 diverged from it.
@@ -268,9 +297,12 @@ form):
    in-memory `durationMs` timing and closed the four open scope questions via
    `adr/0008-m4-verification-scope-boundaries.md`). Remaining, tracked as RISK-18/SPR-12, not a
    slice: demonstrating the repair loop actually fixing a real failure against a real provider —
-   partially advanced this session (the DB persistence layer was verified for real against a live
-   Postgres instance for the first time), but still blocked on a usable GitHub token and a
-   provider API key in this environment.
+   substantially narrowed by a dedicated real-E2E-attempt session (a real job driven through the
+   actual HTTP API against a real Postgres instance directly hit a genuine `401 Bad credentials`
+   from the real GitHub API at BUILD, and the verification+repair mechanics were separately
+   proven against genuinely real `npm`/`eslint` execution and persistence) — but still blocked on
+   a usable GitHub token and a provider API key in this environment; see RISK-18's
+   `remediation_checklist`.
 4. **M5 Review / Export / PR Workflow** — formalize the review step (checklist, decision
    record), add ZIP/Git-patch export with checksums and an export-approval guard
    (`docs/12-testing-quality-gates.md:84-91`).
@@ -289,13 +321,17 @@ See `project/active-sprint.yaml` for the structured version. Summary: **M3.3 Man
 Persistence** is implemented and merged to `main` (PR #23); its sprint items (SPR-3 through
 SPR-6) are done. **M4 Verification Engine** kickoff planning (SPR-7), slice 1 (SPR-8), slice 2
 (SPR-9), slice 3 (bounded repair loop, SPR-10), and slice 4 (timing + scope decisions, SPR-11)
-are all done (merged to `main` through PR #27 for slice 3; slice 4 on
-`feature/m4-verification-slice-4`). SPR-12 (manual end-to-end verification against a real job) is
-**partially done**: the DB persistence layer was exercised for real against a live Postgres
-instance this session; the GitHub-API and real-provider legs remain blocked (no usable GitHub
-token, no provider API key in this environment) and are carried forward, not closed. **M3.2
-Component Adaptation** close-out (SPR-1 `ComponentHarvester.jsx` wiring audit, SPR-2 scoring
-scope decision) remains open. No sprint dates are asserted here (none found in the repo);
+are all done and merged to `main` (PR #27, PR #28). SPR-12 (manual end-to-end verification
+against a real job) is **further narrowed, still not fully done**: a dedicated E2E-attempt
+session drove a real job through the real HTTP API against a real Postgres instance and directly
+observed BUILD fail with a genuine `401 Bad credentials` from the real GitHub API before ever
+reaching QA; separately, the verification+repair mechanics were proven against genuinely real
+`npm`/`eslint` execution and persistence, with `decideRepairAction()` fed real (not fixture)
+`VerificationResult`s. The remaining gap is now precisely a working GitHub PAT and a real
+provider API key, neither available in this environment — see RISK-18's
+`remediation_checklist`. **M3.2 Component Adaptation** close-out (SPR-1 `ComponentHarvester.jsx`
+wiring audit, SPR-2 scoring scope decision) remains open. No sprint dates are asserted here (none
+found in the repo);
 `project/active-sprint.yaml` marks the window as `needs-audit`.
 
 ## 7. Verification gates
@@ -322,15 +358,19 @@ Full register with probability/impact/mitigation in `project/risks.yaml`. Carrie
   any real lint/build/typecheck/test signal~~ **Resolved (M4 slices 1-3, 2026-07-06):** all four
   checks now run for real; a failed check gets up to 2 repair attempts (feeding the exact
   failure back to the provider); an errored check fails the job immediately (never repaired).
-  Residual risk, narrowed (M4 slice 4, 2026-07-06): the repair loop's *mechanics* are
-  unit-tested, and the `qa_runs` persistence layer is now confirmed working against a genuine
-  Postgres instance (not just injected fakes) for the first time, but no real LLM call has
-  actually fixed a real failing check in any session yet — this environment's `GITHUB_TOKEN` is a
-  non-functional Claude Code session proxy placeholder (confirmed via a direct `403` against the
-  real GitHub API) and no provider API key is available, so the GitHub-API and real-provider legs
-  of a full end-to-end run remain blocked, not just undemonstrated. Treat "repair fixes at least
-  one known import/build error" (an M4 exit criterion) as unverified in practice until an
-  environment with those credentials runs SPR-12.
+  Residual risk, narrowed twice (M4 slice 4, then a dedicated real-E2E-attempt session, both
+  2026-07-06): the repair loop's *mechanics* are unit-tested, and the `qa_runs` persistence layer
+  is confirmed working against a genuine Postgres instance for the first time. The E2E-attempt
+  session went further: a real job driven through the real HTTP API failed BUILD with a genuine
+  `401 Bad credentials` from the real GitHub API (the running server's own Octokit client, not a
+  raw `curl` test), never reaching QA; and the verification+repair *decision logic* was proven
+  against genuinely real `npm`/`eslint` execution and persistence, with `decideRepairAction()` fed
+  real (not fixture) results at both the failing and passing stages. What remains unverified is
+  now precisely two things: BUILD/REPAIR's real GitHub commit-back, and a real LLM producing fix
+  content — both gated on credentials this environment doesn't have (no functional `GITHUB_TOKEN`,
+  no provider API key). Treat "repair fixes at least one known import/build error" (an M4 exit
+  criterion) as unverified in practice until an environment with those credentials runs the
+  remediation checklist in `project/risks.yaml` RISK-18.
 - Documentation drift: three design docs (`08`, `09`, `10`) describe a materially different
   architecture than what's running, which will mislead new contractors/agents who read docs
   before code (confirmed gap, §2.2.1-3).
@@ -431,29 +471,34 @@ Recommended order for the next agent, most-blocking first:
    ~~**M4 slice 4**~~ **Done** — `adr/0008-m4-verification-scope-boundaries.md` (Accepted) makes
    the four open scope questions final (preview-error repair deferred, accessibility smoke
    deferred, license checks deferred/out-of-scope, structured timing added now); `CheckResult`
-   gained an in-memory `durationMs` field (no `qa_runs` migration, per the ADR). Also this session
-   ran the DB persistence layer for real against a live local Postgres instance (all 5 migrations
-   applied, `persistQaRun`/`listQaRuns` round-tripped correctly) — the first time any session has
-   exercised that layer against a genuine database rather than injected fakes. Still outstanding,
-   tracked as RISK-18/SPR-12, not a slice: a full manual end-to-end run against a real job needs a
-   working GitHub token (this environment's `GITHUB_TOKEN` is a non-functional session proxy
-   placeholder, confirmed via a direct `403`) and a provider API key (none available) — neither
-   was obtainable in this session. This remains the single most important thing to verify before
-   treating M4 as functionally complete — the repair loop's *decision logic* is thoroughly
-   tested and the DB layer is now proven, but whether a real LLM call actually produces a working
-   fix, committed via a real GitHub token, is still unverified.
+   gained an in-memory `durationMs` field (no `qa_runs` migration, per the ADR). Also this
+   session ran the DB persistence layer for real against a live local Postgres instance (all 5
+   migrations applied, `persistQaRun`/`listQaRuns` round-tripped correctly) — the first time any
+   session has exercised that layer against a genuine database rather than injected fakes.
+   ~~**Real E2E verification attempt**~~ **Done, blocker precisely identified** — a dedicated
+   session (`feature/m4-e2e-verification-proof`) drove a real job through the real HTTP API
+   against a real Postgres instance and directly observed BUILD fail with a genuine `401 Bad
+   credentials` from the real GitHub API (the server's own Octokit client, not a `curl` test)
+   before ever reaching QA. Separately, `runVerification()`'s real (non-injected) command
+   execution and `decideRepairAction()`'s decision logic were proven against a real, genuinely
+   failing then genuinely fixed ESLint violation, with two real `qa_runs` rows persisted to the
+   same live Postgres instance. Still outstanding, tracked as RISK-18/SPR-12, not a slice: a
+   working GitHub PAT and a real provider API key — neither obtainable in this environment — see
+   `project/risks.yaml` RISK-18's `remediation_checklist` for the exact steps. This remains the
+   single most important thing to verify before treating M4 as functionally complete — the
+   repair loop's *decision logic* and the verification engine's *command execution* are both now
+   proven against real components; only the real-GitHub-commit and real-LLM-fix legs remain.
 5. **Candidate scoring (TICKET-029)**: replace the fixed placeholder scores in
    `server/src/services/harvester/manifest-store.ts` with the weighted 0-100 model from
    `docs/06-component-harvester.md:49-65` (RISK-14) — not blocking, but the next natural
    improvement to M3.3's output quality.
 6. Everything else in §5 (roadmap) in the order listed there.
 
-Concretely, the single highest-value next issue is **verifying M4 end-to-end against a real
-job** (GitHub token + Railway + provider API key — Postgres is now confirmed working). All four
-slices are implemented and unit-tested with injected fakes; this session additionally proved the
-`qa_runs` persistence layer works against a genuine Postgres instance, narrowing but not closing
-RISK-18/SPR-12. What remains unconfirmed is specifically the GitHub-API and real-provider legs:
-materializing a real branch through a working token, a real LLM producing a real fix, and that
-fix being committed and re-verified in production. This requires an environment with a real
-`GITHUB_TOKEN`/PAT and an `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`, neither of which this session
-had access to.
+Concretely, the single highest-value next issue is **running the RISK-18 remediation checklist
+in an environment with a real GitHub PAT and a real provider API key** (Postgres is now
+confirmed working, twice). All four M4 slices are implemented; the verification+repair
+*mechanics* are proven against genuinely real `npm`/`eslint` execution and Postgres persistence;
+a real job driven through the real HTTP API in this environment precisely and directly confirmed
+where it stops (a genuine 401 from the real GitHub API at BUILD, before QA). What remains
+unconfirmed is specifically materializing a real branch and committing a fix through a working
+GitHub token, and a real LLM producing that fix — both credential-gated, not logic-gated.
