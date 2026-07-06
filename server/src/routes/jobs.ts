@@ -1,11 +1,20 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import * as orchestrator from '../services/orchestrator';
+import { listQaRuns } from '../services/verification/verify';
 
 export interface JobsRouterDeps {
   getJob: typeof orchestrator.getJob;
   listJobs: typeof orchestrator.listJobs;
   approveJob: typeof orchestrator.approveJob;
+  listQaRuns: typeof listQaRuns;
 }
+
+const defaultDeps: JobsRouterDeps = {
+  getJob: orchestrator.getJob,
+  listJobs: orchestrator.listJobs,
+  approveJob: orchestrator.approveJob,
+  listQaRuns,
+};
 
 export type PreviewStatus = 'building' | 'ready' | 'error';
 
@@ -33,7 +42,7 @@ export function derivePreviewStatus(job: PreviewSourceJob): PreviewStatus {
  * getJob/listJobs/approveJob without hitting the database — mirrors the
  * createGithubRouter(deps) pattern in ./github.ts.
  */
-export function createJobsRouter(deps: JobsRouterDeps = orchestrator): Router {
+export function createJobsRouter(deps: JobsRouterDeps = defaultDeps): Router {
   const router = Router();
 
   // GET /api/jobs — List recent jobs
@@ -72,6 +81,19 @@ export function createJobsRouter(deps: JobsRouterDeps = orchestrator): Router {
           lastUpdated: job.updated_at,
         },
       });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // GET /api/jobs/:id/qa — real QA run history for a job (M4 slice 2), most recent first
+  router.get('/:id/qa', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const job = await deps.getJob(req.params.id);
+      if (!job) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Job not found' } });
+
+      const qaRuns = await deps.listQaRuns(job.id);
+      res.json({ ok: true, data: qaRuns });
     } catch (err) {
       next(err);
     }

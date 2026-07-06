@@ -1,11 +1,12 @@
 # M4 Verification Engine — Kickoff Plan
 
-Status: **Slice 1 implemented (2026-07-06).** Owner: Full-stack/QA.
+Status: **Slice 2 implemented (2026-07-06).** Owner: Full-stack/QA.
 
 This plan grounds M4 ("Verification / Repair Loop") in what is actually running today, per
 `docs/engineering/ENGINEERING_MASTER_PLAN.md` §3/§5 and `project/milestones.yaml` M4. It
-originally shipped as planning-only; slice 1 (§10) is now implemented on
-`feature/m4-verification-slice-1`:
+originally shipped as planning-only; slices 1-2 (§10) are now implemented.
+
+**Slice 1** (`feature/m4-verification-slice-1`):
 
 - `server/src/services/verification/workspace.ts` — materializes a branch into a temp dir via
   the existing `github.getRepoFiles` fetcher (injectable for tests).
@@ -15,15 +16,27 @@ originally shipped as planning-only; slice 1 (§10) is now implemented on
   timeout, never shells out to a string command).
 - `server/src/services/verification/verify.ts` — `runVerification()` ties the above together
   and persists one real `qa_runs` row per job via `persistQaRun`.
-- `server/src/services/orchestrator/index.ts`'s QA step now calls `runVerification` for a real
-  `lint` check instead of logging fake progress lines. `build`/`typecheck`/`test` remain `NULL`
-  (slice 2), there is still no repair loop (slice 3), and the pipeline still does not gate on
-  the result (job proceeds to `preview` regardless of lint outcome) — both deliberately deferred
-  per §10/§11 below.
-- 26 new tests (101/101 server tests passing, up from 75) — see §9 for what they cover.
+- `server/src/services/orchestrator/index.ts`'s QA step calls `runVerification` for a real
+  `lint` check instead of logging fake progress lines.
+
+**Slice 2** (`feature/m4-verification-slice-2`, on top of slice 1):
+
+- `verify.ts`'s `runVerification()` now runs **all four** checks (`lint`/`build`/`typecheck`/
+  `test`) the target repo defines — each independently detected/skippable — and persists a
+  single `qa_runs` row with all four `*_passed`/`*_output` columns populated. Added
+  `listQaRuns(jobId)` to read them back.
+- The orchestrator's QA step now **gates the pipeline**: any `failed` or `errored` check throws
+  (mirroring this codebase's existing `runJobPipeline` → `createJob`'s catch → `status='failed'`
+  error-propagation convention, rather than introducing a new manual-status-update path), so the
+  job never reaches `preview`/`review` on a real problem. A `skipped` check never blocks it.
+- New `GET /api/jobs/:id/qa` route (`server/src/routes/jobs.ts`) returns a job's `qa_runs` rows,
+  most recent first, mirroring the existing `/preview` route's `JobsRouterDeps` DI pattern.
+- No repair loop yet (slice 3) — a failing job now stops at `failed` instead of being repaired.
+- No `qa_runs` migration — the table already had all the columns needed (confirmed in §3 below).
+- 7 new/updated tests (108/108 server tests passing, up from 101) — see §9.
 
 The rest of this document (§2-§11) is unchanged from the original kickoff plan and remains the
-reference for slices 2-4.
+reference for slices 3-4.
 
 ## 1. Current orchestrator QA placeholder — evidence
 
@@ -122,15 +135,22 @@ representable as multiple `qa_runs` rows ordered by `created_at` for the same `j
 The four `*_passed`/`*_output` column pairs map directly to the four checks the placeholder
 already logs (lint/build/typecheck/test).
 
+**Confirmed by slice 2 (2026-07-06):** `server/src/services/verification/verify.ts`'s
+`persistQaRun` now writes all four `*_passed`/`*_output` pairs on one row with no migration —
+this prediction held. One naming detail worth flagging for anyone querying the table directly:
+the schema itself is inconsistent — `tests_passed` is plural but `test_output` is singular
+(`001_initial.sql:50,54`); `verify.ts`'s `NewQaRun`/`QaRunRow` intentionally mirror this exactly
+rather than "fixing" it, since fixing it would be a migration this slice doesn't need.
+
 Gaps to fill **later, only if a slice actually needs them** (not upfront, per
 `CLAUDE.md`'s "implement incrementally" and this project's lean-model precedent from
 `adr/0007-manifest-persistence-data-model.md`):
 
-- No column distinguishing "check failed" from "check didn't run" (missing script, sandbox
-  error) — `*_passed = NULL` already technically means "not run" (nullable boolean), so this
-  may already be sufficient; confirm during slice 1 rather than adding a column speculatively.
+- ~~No column distinguishing "check failed" from "check didn't run"~~ **Confirmed sufficient**:
+  `*_passed = NULL` cleanly represents both "skipped" and "errored" (the distinction lives in
+  the in-memory `CheckResult.outcome`, not persisted separately) — no column added.
 - No `duration_ms`/`command` columns — useful for observability, not required for pass/fail
-  gating. Candidate for slice 3 if the API surface work wants to display them.
+  gating. Candidate for slice 4 if the observability polish work wants to display them.
 - No linkage to which repair attempt a `qa_runs` row belongs to beyond ordering — fine as long
   as the orchestrator only ever reads "the latest row for this job," which is all slice 1-2 need.
 
@@ -252,14 +272,21 @@ style, `server/src/services/**/*.test.ts` pure-function style):
   (spawn-level `ENOENT`), `npm ci` vs `npm install` argv selection, and install failures always
   classified `errored` (never `failed`).
 - ~~**`qa_runs` persistence**~~ **Done, at the `runVerification` level** —
-  `server/src/services/verification/verify.test.ts` (6 tests) asserts the exact
-  `{jobId, lintPassed, lintOutput}` shape passed to an injected `persistQaRun` for each outcome
-  (skipped/passed/failed/errored via materialization failure/errored via install failure).
+  `server/src/services/verification/verify.test.ts` (9 tests, extended in slice 2) asserts the
+  exact `NewQaRun` shape (all four `*Passed`/`*Output` fields) passed to an injected
+  `persistQaRun` for: all-skipped, partial-availability (only some checks defined), all-passed,
+  a failed check blocking `ok` while others still run, an errored check blocking `ok` the same
+  way, a skipped check never blocking `ok` on its own, `npm ci` vs `npm install` selection,
+  install failure (available checks errored, unavailable stay skipped), and materialization
+  failure (all four errored).
 - **Repair-loop boundary** — not yet, slice 3 (§6/§10).
-- **`GET /api/jobs/:id/qa` route** — not yet, slice 2 (§8/§10).
+- ~~**`GET /api/jobs/:id/qa` route**~~ **Done (slice 2)** — `server/src/routes/jobs.test.ts`
+  (4 new tests): 404 when the job is missing, empty array before any run exists, returns
+  persisted rows most-recent-first, and a masked 500 on a DB error (mirroring the existing
+  `GET /api/jobs` 500 test).
 - ~~**No regression**~~ **Done** — `orchestrator/index.test.ts` (`buildPreviewUrl`/
-  `pollPreviewReady`) and `jobs.test.ts` pass unchanged; full server suite is 101/101 (up from
-  75 before this slice).
+  `pollPreviewReady`) and the rest of `jobs.test.ts` pass unchanged; full server suite is
+  108/108 (up from 75 before slice 1, 101 after slice 1).
 
 ## 10. Incremental implementation slices
 
@@ -279,11 +306,14 @@ next one to already exist to be mergeable and useful.
    unit tests (§9) with injected fakes for the GitHub fetch, `execFile`, and DB persistence
    layers, plus `tsc`/build passing. A real end-to-end run against a live job is still
    recommended before treating slice 1 as fully proven in production.
-2. **Slice 2 — All four checks, still no repair loop.** Extend slice 1's mechanism to typecheck/
-   test/build, each independently detected and skippable (§4). A **Failed** outcome now blocks
-   progression to `review` (job goes to `failed` instead) — this is the first slice that
-   actually changes pipeline behavior, so it should ship with the `GET /api/jobs/:id/qa` endpoint
-   (§8) in the same PR so a failed job's output is actually visible somewhere.
+2. ~~**Slice 2 — All four checks, still no repair loop.**~~ **Done (2026-07-06,
+   `feature/m4-verification-slice-2`).** `verify.ts` now runs all four checks, each
+   independently detected/skippable (§4); a **Failed** or **Errored** outcome now blocks
+   progression to `review` (the orchestrator throws, which the existing `createJob`.catch()
+   marks `failed` — no new manual status-setting path introduced). Shipped in the same PR as
+   `GET /api/jobs/:id/qa` (§8), so a failed job's output is visible. **Not yet confirmed against
+   a real Railway deployment** — same caveat as slice 1 (§1), verified via unit tests with
+   injected fakes only.
 3. **Slice 3 — Bounded repair loop.** Add the `Failed → BUILD → VERIFY` cycle from §2/§6, capped
    at a small fixed attempt count, with the exact failing output fed back into the existing BUILD
    provider call.
@@ -311,7 +341,9 @@ Per-slice, plus the milestone-level criteria they roll up to
   `lint_passed = false` row" manual check from the original acceptance bar is still outstanding
   and should be done in a real environment before slice 2 builds further on top of this.
 - **Slice 2 done when:** all four checks run (or are cleanly skipped per §4), a **Failed**
-  outcome prevents `review`, and `GET /api/jobs/:id/qa` returns the real row(s).
+  outcome prevents `review`, and `GET /api/jobs/:id/qa` returns the real row(s). **Status: code
+  complete, verified by unit tests (§9), not yet by a manual run against a real job** — same
+  outstanding manual-verification caveat as slice 1.
 - **Slice 3 done when:** a job with a known, fixable lint error is repaired within the bounded
   attempt count and reaches `review`; a job with an unfixable error exhausts the budget and
   reaches `failed` with the last failure's output intact.

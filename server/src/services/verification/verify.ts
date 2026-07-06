@@ -2,7 +2,16 @@ import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import { query } from '../../db/client';
 import { materializeWorkspace, WorkspaceFilesFetcher } from './workspace';
-import { readPackageJson, detectAvailableChecks, runInstall, runCommand, CheckResult, ExecFileImpl } from './checks';
+import {
+  readPackageJson,
+  detectAvailableChecks,
+  runInstall,
+  runCommand,
+  CheckResult,
+  CheckName,
+  AvailableChecks,
+  ExecFileImpl,
+} from './checks';
 
 export interface QaRunRow {
   id: string;
@@ -18,21 +27,48 @@ export interface QaRunRow {
   created_at: string;
 }
 
+// Field names mirror the qa_runs columns 1:1 (camelCase), including the
+// schema's own lint_passed/build_passed/typecheck_passed/tests_passed +
+// test_output naming (note: "tests_passed" is plural, "test_output" is
+// singular — that's the existing 001_initial.sql schema, not a typo here).
 export interface NewQaRun {
   jobId: string;
   lintPassed: boolean | null;
   lintOutput: string | null;
+  buildPassed: boolean | null;
+  buildOutput: string | null;
+  typecheckPassed: boolean | null;
+  typecheckOutput: string | null;
+  testsPassed: boolean | null;
+  testOutput: string | null;
 }
 
-/** Inserts one qa_runs row. build/typecheck/tests columns are left at their column default (NULL) — out of scope for slice 1. */
+/** Inserts one qa_runs row with all four checks' results. */
 export async function persistQaRun(input: NewQaRun): Promise<QaRunRow> {
   const rows = await query<QaRunRow>(
-    `INSERT INTO qa_runs (job_id, lint_passed, lint_output)
-     VALUES ($1, $2, $3)
+    `INSERT INTO qa_runs (
+       job_id, lint_passed, lint_output, build_passed, build_output,
+       typecheck_passed, typecheck_output, tests_passed, test_output
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
      RETURNING *`,
-    [input.jobId, input.lintPassed, input.lintOutput]
+    [
+      input.jobId,
+      input.lintPassed,
+      input.lintOutput,
+      input.buildPassed,
+      input.buildOutput,
+      input.typecheckPassed,
+      input.typecheckOutput,
+      input.testsPassed,
+      input.testOutput,
+    ]
   );
   return rows[0];
+}
+
+/** Returns a job's qa_runs rows, most recent first. */
+export async function listQaRuns(jobId: string): Promise<QaRunRow[]> {
+  return query<QaRunRow>(`SELECT * FROM qa_runs WHERE job_id = $1 ORDER BY created_at DESC`, [jobId]);
 }
 
 export interface RunVerificationInput {
@@ -50,10 +86,18 @@ export interface RunVerificationDeps {
   installTimeoutMs?: number;
 }
 
+export type CheckResults = Record<CheckName, CheckResult>;
+
 export interface VerificationResult {
-  lint: CheckResult;
+  checks: CheckResults;
+  /** True only if every check that actually ran passed (skipped checks don't count against this). */
+  ok: boolean;
   qaRun: QaRunRow;
 }
+
+// Deterministic run order — also the order the original placeholder logged
+// these in ("Running lint... Running build... Running typecheck... Running tests...").
+const CHECK_ORDER: CheckName[] = ['lint', 'build', 'typecheck', 'test'];
 
 async function fileExists(p: string): Promise<boolean> {
   try {
@@ -64,19 +108,52 @@ async function fileExists(p: string): Promise<boolean> {
   }
 }
 
-function lintPassedFromOutcome(outcome: CheckResult['outcome']): boolean | null {
+function passedFromOutcome(outcome: CheckResult['outcome']): boolean | null {
   if (outcome === 'passed') return true;
   if (outcome === 'failed') return false;
   return null; // 'errored' or 'skipped' — not a real pass/fail signal
 }
 
+function erroredResult(message: string): CheckResult {
+  return { outcome: 'errored', output: message, exitCode: null };
+}
+
+function skippedResult(): CheckResult {
+  return { outcome: 'skipped', output: '', exitCode: null };
+}
+
+function allChecks(build: (name: CheckName) => CheckResult): CheckResults {
+  const checks = {} as CheckResults;
+  for (const name of CHECK_ORDER) checks[name] = build(name);
+  return checks;
+}
+
+function toNewQaRun(jobId: string, checks: CheckResults): NewQaRun {
+  return {
+    jobId,
+    lintPassed: passedFromOutcome(checks.lint.outcome),
+    lintOutput: checks.lint.output || null,
+    buildPassed: passedFromOutcome(checks.build.outcome),
+    buildOutput: checks.build.output || null,
+    typecheckPassed: passedFromOutcome(checks.typecheck.outcome),
+    typecheckOutput: checks.typecheck.output || null,
+    testsPassed: passedFromOutcome(checks.test.outcome),
+    testOutput: checks.test.output || null,
+  };
+}
+
+/** A check that never ran (skipped) never blocks the job — only a real failed/errored outcome does. */
+function isOk(checks: CheckResults): boolean {
+  return CHECK_ORDER.every((name) => checks[name].outcome === 'passed' || checks[name].outcome === 'skipped');
+}
+
 /**
- * M4 slice 1: materializes a job's feature branch, runs its `lint` script if
- * one exists, and persists one real qa_runs row. Per
- * docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md section 10, this slice
- * deliberately does not gate the pipeline (a failed/errored lint still lets
- * the job proceed to preview/review) and does not implement a repair loop —
- * both are scoped to later slices.
+ * M4 slice 2: materializes a job's feature branch, runs every check the
+ * target repo defines (lint/build/typecheck/test — never fabricating one
+ * that isn't defined), and persists one real qa_runs row with all four
+ * results. `ok` tells the caller (the orchestrator) whether to gate the
+ * pipeline; this function only reports what actually happened and does not
+ * implement a repair loop (slice 3).
  */
 export async function runVerification(
   input: RunVerificationInput,
@@ -92,24 +169,21 @@ export async function runVerification(
     );
   } catch (err: any) {
     // Materialization failure is an infrastructure problem, not evidence the
-    // generated code is wrong — classified "errored", same as a timed-out check.
-    const lint: CheckResult = {
-      outcome: 'errored',
-      output: `Workspace materialization failed: ${err?.message ?? err}`,
-      exitCode: null,
-    };
-    const qaRun = await persist({ jobId: input.jobId, lintPassed: lintPassedFromOutcome(lint.outcome), lintOutput: lint.output });
-    return { lint, qaRun };
+    // generated code is wrong — every check is "errored", none "failed".
+    const message = `Workspace materialization failed: ${err?.message ?? err}`;
+    const checks = allChecks(() => erroredResult(message));
+    const qaRun = await persist(toNewQaRun(input.jobId, checks));
+    return { checks, ok: isOk(checks), qaRun };
   }
 
   try {
     const packageJsonRaw = await readPackageJson(workspace.dir);
-    const available = detectAvailableChecks(packageJsonRaw);
+    const available: AvailableChecks = detectAvailableChecks(packageJsonRaw);
 
-    if (!available.lint) {
-      const lint: CheckResult = { outcome: 'skipped', output: '', exitCode: null };
-      const qaRun = await persist({ jobId: input.jobId, lintPassed: lintPassedFromOutcome(lint.outcome), lintOutput: null });
-      return { lint, qaRun };
+    if (!CHECK_ORDER.some((name) => available[name])) {
+      const checks = allChecks(() => skippedResult());
+      const qaRun = await persist(toNewQaRun(input.jobId, checks));
+      return { checks, ok: isOk(checks), qaRun };
     }
 
     const hasLockfile = await fileExists(path.join(workspace.dir, 'package-lock.json'));
@@ -121,22 +195,24 @@ export async function runVerification(
     });
 
     if (install.outcome !== 'passed') {
-      const lint: CheckResult = {
-        outcome: 'errored',
-        output: `Dependency install did not complete, so lint could not run:\n${install.output}`,
-        exitCode: null,
-      };
-      const qaRun = await persist({ jobId: input.jobId, lintPassed: lintPassedFromOutcome(lint.outcome), lintOutput: lint.output });
-      return { lint, qaRun };
+      // No available check can meaningfully run without dependencies installed —
+      // each becomes "errored" (not "failed"); checks that were never going to
+      // run anyway stay "skipped" regardless of the install outcome.
+      const message = `Dependency install did not complete, so checks could not run:\n${install.output}`;
+      const checks = allChecks((name) => (available[name] ? erroredResult(message) : skippedResult()));
+      const qaRun = await persist(toNewQaRun(input.jobId, checks));
+      return { checks, ok: isOk(checks), qaRun };
     }
 
-    const lint = await runCommand('lint', { cwd: workspace.dir, exec: deps.exec, timeoutMs: deps.checkTimeoutMs });
-    const qaRun = await persist({
-      jobId: input.jobId,
-      lintPassed: lintPassedFromOutcome(lint.outcome),
-      lintOutput: lint.output || null,
-    });
-    return { lint, qaRun };
+    const checks = {} as CheckResults;
+    for (const name of CHECK_ORDER) {
+      checks[name] = available[name]
+        ? await runCommand(name, { cwd: workspace.dir, exec: deps.exec, timeoutMs: deps.checkTimeoutMs })
+        : skippedResult();
+    }
+
+    const qaRun = await persist(toNewQaRun(input.jobId, checks));
+    return { checks, ok: isOk(checks), qaRun };
   } finally {
     await workspace.cleanup();
   }
