@@ -77,6 +77,10 @@ export default function Dashboard() {
   const isNewJob = location.search.includes("new=true");
   const tier = useResponsiveTier();
   const isMobile = tier === "mobile";
+  // Read inside effects that shouldn't re-run on resize (e.g. the repo-select
+  // effect below) without adding isMobile to their dependency arrays.
+  const isMobileRef = useRef(isMobile);
+  isMobileRef.current = isMobile;
 
   const [selectedRepo, setSelectedRepo] = useState(null);
   const [selectedBranch, setSelectedBranch] = useState("");
@@ -181,6 +185,7 @@ export default function Dashboard() {
           // preview immediately instead of leaving the Files tab showing.
           setPreviewSource("job");
           setRightPanelTab("preview");
+          if (isMobile) setMobilePanelOpen(true);
           const terminal = TERMINAL_STATUSES.includes(job.status);
           const msgId = newMessageId("assistant");
           setMessages([
@@ -252,6 +257,7 @@ export default function Dashboard() {
     // Opening/selecting a repo (first pick or a switch) should surface its
     // live preview immediately rather than requiring a manual tab click.
     setRightPanelTab("preview");
+    if (isMobileRef.current) setMobilePanelOpen(true);
 
     let cancelled = false;
     setSelectedBranch("");
@@ -318,6 +324,7 @@ export default function Dashboard() {
       setPreviewData(null);
       setPreviewSource("job");
       setRightPanelTab("preview");
+      if (isMobile) setMobilePanelOpen(true);
       fetchPreview(id);
 
       setMessages((prev) => [

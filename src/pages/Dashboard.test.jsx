@@ -59,6 +59,33 @@ vi.mock("@/components/ui/resizable", () => ({
   ResizableHandle: () => null,
 }));
 
+// Exposes the mobile drawer's `open` state as a data attribute — Vaul's real
+// drawer primitive is portal/animation-based and not useful to assert on
+// directly; RightPanel (rendered as its children) is already stubbed above.
+vi.mock("@/components/ui/drawer", () => ({
+  Drawer: ({ open, children }) => (
+    <div data-testid="mobile-drawer" data-open={open ? "true" : "false"}>
+      {children}
+    </div>
+  ),
+  DrawerContent: ({ children }) => <div>{children}</div>,
+  DrawerTitle: ({ children }) => <div>{children}</div>,
+}));
+
+// On mobile, the repo picker (stubbed Sidebar above) lives inside this Sheet,
+// which the real Radix-based component doesn't mount content for while
+// closed. Always rendering its children keeps these tests focused on
+// preview-drawer behavior rather than the separate hamburger-menu open flow.
+vi.mock("@/components/ui/sheet", () => ({
+  Sheet: ({ children }) => <div>{children}</div>,
+  SheetContent: ({ children }) => <div>{children}</div>,
+  SheetTitle: ({ children }) => <div>{children}</div>,
+}));
+
+function setViewportWidth(width) {
+  Object.defineProperty(window, "innerWidth", { writable: true, configurable: true, value: width });
+}
+
 const REPO = { full_name: "acme/widgets", private: false, default_branch: "main" };
 
 function renderDashboard() {
@@ -240,5 +267,47 @@ describe("Dashboard: preview opens automatically on app/project selection", () =
     expect(await screen.findByTestId("right-panel-stub")).toBeInTheDocument();
     expect(screen.getByTestId("active-tab")).toHaveTextContent("files");
     expect(screen.getByTestId("has-active-job")).toHaveTextContent("no");
+  });
+});
+
+describe("Dashboard: mobile preview drawer opens automatically on selection", () => {
+  it("opens the mobile drawer (and the Preview tab) as soon as a repo is selected", async () => {
+    const user = userEvent.setup();
+    setViewportWidth(375);
+
+    renderDashboard();
+    expect(screen.getByTestId("mobile-drawer")).toHaveAttribute("data-open", "false");
+
+    await user.click(await screen.findByText(REPO.full_name));
+
+    await waitFor(() => expect(screen.getByTestId("mobile-drawer")).toHaveAttribute("data-open", "true"));
+    expect(screen.getByTestId("active-tab")).toHaveTextContent("preview");
+  });
+
+  it("opens the mobile drawer (and the Preview tab) when an existing job is restored on load", async () => {
+    setViewportWidth(375);
+    BlairAPI.listJobs.mockResolvedValue([
+      { id: "job-1", status: "shipped", repo_url: "https://github.com/acme/widgets", pr_url: null },
+    ]);
+    BlairAPI.getPreview.mockResolvedValue({
+      previewUrl: "https://preview.example.com/job-1",
+      status: "ready",
+      lastUpdated: "2026-07-06T00:00:00.000Z",
+    });
+
+    renderDashboard();
+
+    await waitFor(() => expect(screen.getByTestId("mobile-drawer")).toHaveAttribute("data-open", "true"));
+    expect(screen.getByTestId("active-tab")).toHaveTextContent("preview");
+  });
+
+  it("does not render a mobile drawer at all on desktop widths (behavior unchanged)", async () => {
+    const user = userEvent.setup();
+    renderDashboard(); // beforeEach already sets a desktop-width innerWidth
+
+    await user.click(await screen.findByText(REPO.full_name));
+
+    await waitFor(() => expect(screen.getByTestId("active-tab")).toHaveTextContent("preview"));
+    expect(screen.queryByTestId("mobile-drawer")).not.toBeInTheDocument();
   });
 });
