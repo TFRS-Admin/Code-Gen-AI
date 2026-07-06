@@ -137,6 +137,28 @@ producing fix content — both gated on credentials this environment does not ha
 elsewhere. No server source code changed in this update — this was a verification-only session;
 docs/project-state files were updated to record the findings.
 
+**Update (2026-07-06, Railway E2E attempt):** On `feature/m4-final-railway-e2e-proof` (from
+`main`, which contains the prior E2E attempt via merged PR #29): the task pointed specifically
+at Railway, since a real GitHub token and provider API key are understood to already be
+configured there, unlike this session's own environment. Six distinct channels to reach Railway
+were checked, and **none exist for this session**: (1) no Railway CLI binary installed; (2) no
+`RAILWAY_TOKEN`/`RAILWAY_API_TOKEN` environment variable set; (3) no documented Railway project
+ID or deployed URL anywhere in the repository — `.env.example` and `buildPreviewUrl()`
+(`server/src/services/orchestrator/index.ts`) only encode the URL *pattern*
+(`https://<branch>-<project-id>.railway.app`), never a committed value; (4) zero GitHub Actions
+workflows exist in this repo (confirmed via `actions_list`) that might deploy to or reveal
+Railway; (5) no GitHub Deployments-API tool exposed among this session's GitHub MCP tools; (6) no
+Railway MCP connector connected to this account (confirmed via `ListConnectors` — only
+Base44/Gmail/Google Calendar/Google Drive/HubSpot are connected). No request was made to any
+guessed Railway URL, since that would be speculation, not evidence. This is a categorically
+different, more fundamental blocker than the prior update's "the reachable `GITHUB_TOKEN` is a
+non-functional placeholder" finding: it isn't that the credentials in reach are bad, it's that
+Railway is not reachable from this session by any available means. M4 remains `in_progress`; its
+exit criteria are unchanged from the prior update. No server source code changed in this update
+either. See `project/risks.yaml` RISK-18's `railway_access_prerequisites` for what closing this
+specific gap requires (a Railway-capable MCP connector/credential for a future session, or
+running this check from an environment with direct Railway access).
+
 This document does not replace the design/spec suite in `docs/00-documentation-map.md` — it
 tracks *status and sequencing* against that suite, and records where the running code has
 diverged from it.
@@ -301,8 +323,11 @@ form):
    actual HTTP API against a real Postgres instance directly hit a genuine `401 Bad credentials`
    from the real GitHub API at BUILD, and the verification+repair mechanics were separately
    proven against genuinely real `npm`/`eslint` execution and persistence) — but still blocked on
-   a usable GitHub token and a provider API key in this environment; see RISK-18's
-   `remediation_checklist`.
+   a usable GitHub token and a provider API key in this environment. A follow-up attempt to run
+   this against Railway (where those credentials are understood to exist) found a harder
+   blocker: this session has no technical channel to Railway at all (no CLI, no API token, no
+   MCP connector, no documented deployment URL). See RISK-18's `remediation_checklist` and
+   `railway_access_prerequisites`.
 4. **M5 Review / Export / PR Workflow** — formalize the review step (checklist, decision
    record), add ZIP/Git-patch export with checksums and an export-approval guard
    (`docs/12-testing-quality-gates.md:84-91`).
@@ -327,10 +352,13 @@ session drove a real job through the real HTTP API against a real Postgres insta
 observed BUILD fail with a genuine `401 Bad credentials` from the real GitHub API before ever
 reaching QA; separately, the verification+repair mechanics were proven against genuinely real
 `npm`/`eslint` execution and persistence, with `decideRepairAction()` fed real (not fixture)
-`VerificationResult`s. The remaining gap is now precisely a working GitHub PAT and a real
-provider API key, neither available in this environment — see RISK-18's
-`remediation_checklist`. **M3.2 Component Adaptation** close-out (SPR-1 `ComponentHarvester.jsx`
-wiring audit, SPR-2 scoring scope decision) remains open. No sprint dates are asserted here (none
+`VerificationResult`s. A follow-up attempt pointed at Railway (where real credentials are
+understood to exist) but found this session has no technical channel to Railway at all (no CLI,
+no API token, no MCP connector, no documented deployment URL) — a harder, environmental blocker,
+not just a bad-credentials one. **M4 remains `in_progress`, not moved toward M5.** See RISK-18's
+`remediation_checklist` and `railway_access_prerequisites`. **M3.2 Component Adaptation**
+close-out (SPR-1 `ComponentHarvester.jsx` wiring audit, SPR-2 scoring scope decision) remains
+open. No sprint dates are asserted here (none
 found in the repo);
 `project/active-sprint.yaml` marks the window as `needs-audit`.
 
@@ -370,7 +398,11 @@ Full register with probability/impact/mitigation in `project/risks.yaml`. Carrie
   content — both gated on credentials this environment doesn't have (no functional `GITHUB_TOKEN`,
   no provider API key). Treat "repair fixes at least one known import/build error" (an M4 exit
   criterion) as unverified in practice until an environment with those credentials runs the
-  remediation checklist in `project/risks.yaml` RISK-18.
+  remediation checklist in `project/risks.yaml` RISK-18. A further follow-up session attempted
+  this against Railway specifically (real credentials are understood to be configured there) and
+  found a harder blocker: no technical channel from this session to Railway exists at all (no
+  CLI, no API token, no MCP connector, no documented deployment URL — six channels checked, none
+  viable). See RISK-18's `railway_access_prerequisites` for what closing this needs.
 - Documentation drift: three design docs (`08`, `09`, `10`) describe a materially different
   architecture than what's running, which will mislead new contractors/agents who read docs
   before code (confirmed gap, §2.2.1-3).
@@ -488,17 +520,26 @@ Recommended order for the next agent, most-blocking first:
    single most important thing to verify before treating M4 as functionally complete — the
    repair loop's *decision logic* and the verification engine's *command execution* are both now
    proven against real components; only the real-GitHub-commit and real-LLM-fix legs remain.
+   ~~**Railway E2E attempt**~~ **Done, blocked before it could start** — a session specifically
+   targeted Railway (where real credentials are understood to exist) and checked six distinct
+   channels to reach it (CLI, API token env vars, a documented deployment URL, GitHub Actions,
+   GitHub's Deployments API, a Railway MCP connector); none exist for this session. No request
+   was made to a guessed URL. M4 remains `in_progress`; this is a different, more fundamental
+   blocker than "the reachable credentials don't work" — see `project/risks.yaml` RISK-18's
+   `railway_access_prerequisites`.
 5. **Candidate scoring (TICKET-029)**: replace the fixed placeholder scores in
    `server/src/services/harvester/manifest-store.ts` with the weighted 0-100 model from
    `docs/06-component-harvester.md:49-65` (RISK-14) — not blocking, but the next natural
    improvement to M3.3's output quality.
 6. Everything else in §5 (roadmap) in the order listed there.
 
-Concretely, the single highest-value next issue is **running the RISK-18 remediation checklist
-in an environment with a real GitHub PAT and a real provider API key** (Postgres is now
-confirmed working, twice). All four M4 slices are implemented; the verification+repair
-*mechanics* are proven against genuinely real `npm`/`eslint` execution and Postgres persistence;
-a real job driven through the real HTTP API in this environment precisely and directly confirmed
-where it stops (a genuine 401 from the real GitHub API at BUILD, before QA). What remains
-unconfirmed is specifically materializing a real branch and committing a fix through a working
-GitHub token, and a real LLM producing that fix — both credential-gated, not logic-gated.
+Concretely, the single highest-value next issue is **giving a future session (or a human
+operator) real access to Railway** — a Railway MCP connector/API token, or at minimum the
+deployed backend's public URL — so the RISK-18 remediation checklist can actually run against an
+environment with a working GitHub PAT and provider API key. Postgres is now confirmed working,
+twice, from this session's own environment; the verification+repair *mechanics* are proven
+against genuinely real `npm`/`eslint` execution and Postgres persistence; a real job driven
+through the real HTTP API in this environment precisely and directly confirmed where it stops (a
+genuine 401 from the real GitHub API at BUILD, before QA). What remains unconfirmed is no longer
+just "which credentials to use" — it's that this session category (Claude Code Remote, as
+currently provisioned for this repo) has no path to Railway at all.

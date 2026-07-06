@@ -331,6 +331,26 @@ risks:
       ANTHROPIC_API_KEY is present in this environment. M4's "Repair fixes at least one known
       import/build error" exit criterion (project/milestones.yaml M4) still requires a full
       end-to-end run through those two layers and is not yet met.
+
+      Railway E2E attempt (2026-07-06, feature/m4-final-railway-e2e-proof): the task explicitly
+      pointed at Railway, where a real GitHub token and provider key are understood to already be
+      configured, since this session's own environment is confirmed credential-blocked. This
+      attempt found a harder, more fundamental blocker: this Claude Code Remote session has **no
+      technical channel to Railway at all**. Checks performed and their results: (1) Railway CLI
+      binary — not installed (`which railway` empty). (2) `RAILWAY_TOKEN`/`RAILWAY_API_TOKEN`
+      environment variables — not set. (3) A documented Railway project ID or deployed URL
+      anywhere in the repository — none found; `.env.example` and
+      `server/src/services/orchestrator/index.ts`'s `buildPreviewUrl()` only show the URL
+      *pattern* (`https://<branch>-<project-id>.railway.app`), never a committed real value, by
+      design (it's derived at runtime from `RAILWAY_PROJECT_ID`). (4) GitHub Actions workflows
+      that might deploy to or expose Railway — `actions_list` confirms 0 workflows exist in this
+      repo. (5) A GitHub Deployments-API tool that might surface a deployment's target URL — not
+      exposed among this session's available GitHub MCP tools. (6) A Railway MCP connector for
+      this account — `ListConnectors` returned only Base44/Gmail/Google Calendar/Google
+      Drive/HubSpot; no Railway connector exists. With all six channels exhausted and none
+      viable, no HTTP request was made to any guessed Railway URL — that would not be evidence,
+      just speculation. M4's exit criteria are unchanged from before this attempt; this is a
+      documented environmental blocker, not a regression or a new code-level risk.
     remediation_checklist:
       - "Obtain a real GitHub PAT (classic or fine-grained) with repo scope for a test repository the pipeline is allowed to branch/commit/open-PRs against; set it as GITHUB_TOKEN in the server's actual runtime environment (not the Claude Code session's own GITHUB_TOKEN, which is confirmed non-functional against the raw GitHub REST API — 401 Bad credentials)."
       - "Obtain a real provider API key (OPENAI_API_KEY or ANTHROPIC_API_KEY) and set DEFAULT_PROVIDER to 'openai' or 'anthropic' (not 'mock'), so BUILD/REPAIR produce genuine LLM-generated content instead of the mock provider's canned string."
@@ -338,3 +358,7 @@ risks:
       - "Start the server (npm run build && npm start, or npm run dev) with all three of the above env vars set."
       - "POST to /api/generations with a real connected repo URL/branch and a prompt targeting a deliberately fixable lint/build/typecheck error."
       - "Poll GET /api/jobs/:id and GET /api/jobs/:id/qa until the job reaches a terminal or 'review' status; confirm the qa_runs history shows a failed -> repaired -> passed progression and that a real PR was opened."
+    railway_access_prerequisites:
+      - "If running this from a Claude Code Remote session: connect a Railway MCP connector (or equivalent) to the account so a session has a real API/CLI credential to query deployment status, logs, and environment variable presence — none exists today (confirmed via ListConnectors)."
+      - "Alternatively, expose the deployed backend's public URL (e.g. as a documented value in project/*.yaml or an environment variable readable by the session) so at least the HTTP API surface (POST /api/generations, GET /api/jobs/:id, GET /api/jobs/:id/qa) can be exercised directly via curl/fetch without needing Railway's own control-plane API."
+      - "Absent either of the above, this proof needs to be run by a human operator (or an agent) with direct access to the Railway dashboard/CLI and the deployed app's URL — not from this session as currently provisioned."

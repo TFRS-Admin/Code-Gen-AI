@@ -1,7 +1,7 @@
 # M4 Verification Engine — Kickoff Plan
 
-Status: **All 4 slices implemented; real E2E attempt run and precisely blocked (2026-07-06).**
-Owner: Full-stack/QA.
+Status: **All 4 slices implemented; two real E2E attempts run, both precisely blocked
+(2026-07-06). M4 not yet complete.** Owner: Full-stack/QA.
 
 This plan grounds M4 ("Verification / Repair Loop") in what is actually running today, per
 `docs/engineering/ENGINEERING_MASTER_PLAN.md` §3/§5 and `project/milestones.yaml` M4. It
@@ -125,8 +125,34 @@ merged to `main` via PR #28):
   `remediation_checklist` for the exact steps to close this in an environment with those
   credentials.
 
+**Railway E2E attempt** (`feature/m4-final-railway-e2e-proof`, on top of the E2E attempt above):
+
+- The two credential-gated legs identified above are understood to already be resolved on the
+  project's Railway deployment (a real `GITHUB_TOKEN` and a real provider API key are configured
+  there), so this attempt targeted Railway directly rather than this session's own environment.
+- **Six distinct channels to reach Railway were checked, and none exist for this session:**
+  (1) Railway CLI binary — not installed. (2) `RAILWAY_TOKEN`/`RAILWAY_API_TOKEN` environment
+  variables — not set. (3) A documented Railway project ID or deployed URL anywhere in this
+  repository — none found; `.env.example` and `buildPreviewUrl()`
+  (`server/src/services/orchestrator/index.ts`) only encode the URL *pattern*
+  (`https://<branch>-<project-id>.railway.app`), never a committed real value, by design (it's
+  derived at runtime from `RAILWAY_PROJECT_ID`). (4) GitHub Actions workflows that might deploy
+  to or reveal Railway — confirmed 0 workflows exist in this repo. (5) A GitHub Deployments-API
+  tool that might surface a deployment's target URL — not exposed among this session's available
+  GitHub MCP tools. (6) A Railway MCP connector for this account — none exists (checked via
+  `ListConnectors`).
+- **No request was made to any guessed Railway URL.** With zero of the six channels viable,
+  attempting one would be speculation dressed as evidence, not real evidence — the same
+  standard this document has held to since slice 1's "do not fake success" framing.
+- **This is a different, more fundamental blocker than the credential-placeholder finding
+  above.** The prior finding was "the credentials this session can see don't work." This
+  finding is "this session cannot see Railway at all, regardless of what credentials exist
+  there." Closing it requires either connecting a Railway-capable credential/connector to a
+  future session, or running this specific check from an environment (human operator, or an
+  agent) that already has direct Railway dashboard/CLI/API access.
+
 The rest of this document (§2-§9) is unchanged from the original kickoff plan; §10-§11 are
-updated below to reflect slice 4, the real E2E attempt, and the current verification status.
+updated below to reflect slice 4, both real E2E attempts, and the current verification status.
 
 ## 1. Current orchestrator QA placeholder — evidence
 
@@ -498,6 +524,15 @@ Per-slice, plus the milestone-level criteria they roll up to
   with credentials this environment doesn't have:** a working GitHub PAT for BUILD/REPAIR's real
   commit-back, and a real provider API key for genuine fix content — see
   `project/risks.yaml` RISK-18's `remediation_checklist`.
+- **Railway E2E attempt done when:** the proof is run against Railway (where real credentials
+  are understood to already exist), or the exact reason it couldn't be is documented with
+  evidence. **Status: done, blocked before it could start.** Six distinct channels to reach
+  Railway from this session were checked (CLI, API token env vars, a documented deployment URL,
+  GitHub Actions, GitHub's Deployments API, a Railway MCP connector) and none exist — see the
+  "Railway E2E attempt" section above and `project/risks.yaml` RISK-18's
+  `railway_access_prerequisites`. No request was made to a guessed URL. This is a categorically
+  different blocker than the credential-placeholder one above: it isn't that the reachable
+  credentials are bad, it's that Railway itself is unreachable from this session by any means.
 - **M4 milestone done when** (mirrors `project/milestones.yaml` M4's three exit criteria):
   "Verification failures produce repair context" — **met**: `buildRepairUserMessage()` gives the
   provider the plan, generated files, and exact failing output every repair attempt

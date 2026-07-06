@@ -192,6 +192,22 @@ milestones:
           unverified is now precisely two things: (1) BUILD/REPAIR committing files back through
           a real GitHub token, and (2) a real LLM (not the mock provider) producing the fix
           content. See RISK-18 for the exact remediation checklist to close these.
+
+          Still not met (2026-07-06, feature/m4-final-railway-e2e-proof): an attempt was made to
+          close the remaining gap by running the proof against Railway, where a real GitHub token
+          and provider key are understood to be configured. This attempt found a harder blocker
+          than expected: this Claude Code Remote session has **no technical channel to Railway at
+          all** — no Railway CLI installed, no RAILWAY_TOKEN/RAILWAY_API_TOKEN environment
+          variable, no Railway MCP connector connected to this account (confirmed via
+          ListConnectors), no documented deployed URL or project ID anywhere in the repository
+          (`.env.example` and `server/src/services/orchestrator/index.ts` only show the URL
+          *pattern* `https://<branch>-<project-id>.railway.app`, never a committed value), and no
+          GitHub Actions workflow or Deployments-API tool that would surface one. This is a
+          categorically different (and more fundamental) blocker than the prior session's
+          "GITHUB_TOKEN is a non-functional placeholder" finding — it isn't that the credentials
+          in reach are bad, it's that Railway itself is unreachable from this session by any
+          available means. See RISK-18 for the updated remediation checklist distinguishing what
+          this session's environment needs vs. what a session with real Railway access needs.
       - criterion: "Reviewer can approve/request changes"
         met: needs-audit
         evidence: ["server/src/routes/jobs.ts:81-96 (approve only, no request-changes path found)"]
@@ -262,6 +278,14 @@ milestones:
       but a full HTTP-API-triggered job reaching `review` still requires a working GitHub PAT
       and a real provider API key, neither available in this environment. See RISK-18 for the
       remediation checklist.
+
+      Railway E2E attempt (2026-07-06, feature/m4-final-railway-e2e-proof): attempted to close
+      the remaining gap using Railway, where a real GitHub token and provider key are understood
+      to be configured. Found a harder blocker: this session has no technical channel to Railway
+      at all (no CLI, no API token, no MCP connector, no documented deployment URL — see RISK-18
+      for the full list of checks performed). M4 remains in_progress; exit criteria unchanged.
+      This is not a regression — it precisely identifies what's needed next (Railway access from
+      wherever the E2E proof is run) rather than leaving the gap vague.
 
   - id: M5
     name: "Review / Export / PR Workflow"
