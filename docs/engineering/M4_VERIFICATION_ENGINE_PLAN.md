@@ -1,10 +1,10 @@
 # M4 Verification Engine — Kickoff Plan
 
-Status: **Slice 2 implemented (2026-07-06).** Owner: Full-stack/QA.
+Status: **Slice 3 implemented (2026-07-06).** Owner: Full-stack/QA.
 
 This plan grounds M4 ("Verification / Repair Loop") in what is actually running today, per
 `docs/engineering/ENGINEERING_MASTER_PLAN.md` §3/§5 and `project/milestones.yaml` M4. It
-originally shipped as planning-only; slices 1-2 (§10) are now implemented.
+originally shipped as planning-only; slices 1-3 (§10) are now implemented.
 
 **Slice 1** (`feature/m4-verification-slice-1`):
 
@@ -31,12 +31,31 @@ originally shipped as planning-only; slices 1-2 (§10) are now implemented.
   job never reaches `preview`/`review` on a real problem. A `skipped` check never blocks it.
 - New `GET /api/jobs/:id/qa` route (`server/src/routes/jobs.ts`) returns a job's `qa_runs` rows,
   most recent first, mirroring the existing `/preview` route's `JobsRouterDeps` DI pattern.
-- No repair loop yet (slice 3) — a failing job now stops at `failed` instead of being repaired.
 - No `qa_runs` migration — the table already had all the columns needed (confirmed in §3 below).
-- 7 new/updated tests (108/108 server tests passing, up from 101) — see §9.
+
+**Slice 3** (`feature/m4-verification-slice-3`, on top of slice 2):
+
+- A **bounded repair loop** (§6/§10): when verification has one or more `failed` (not
+  `errored`, not `skipped`-only) checks, the orchestrator now re-invokes the BUILD provider flow
+  with the original plan, every file generated so far, and the exact failing check(s)' output,
+  instructing it to return a minimal fix. Capped at 2 repair attempts, counted from existing
+  `qa_runs` rows for the job (no new column) — see `decideRepairAction()` in
+  `server/src/services/orchestrator/index.ts`.
+- An `errored` check is never repaired (infrastructure problem, not a code problem) — the job
+  fails immediately, same as slice 2. A `skipped` check still never blocks progression.
+- After a repair, verification re-runs in full (all four checks again) against the newly
+  committed files; a pass proceeds to `preview`/`review`; a persisting failure repairs again (up
+  to the cap) or fails the job once exhausted.
+- The repair decision itself (`decideRepairAction`) is a pure, exported function — the rest of
+  `runJobPipeline` (PLAN/BUILD/PREVIEW/REVIEW) is not unit-tested end-to-end in this codebase
+  (no DI harness exists for it), so the loop's actual branching logic is tested directly rather
+  than through a full mocked pipeline run, consistent with how `buildPreviewUrl`/
+  `pollPreviewReady` were already tested this way before slice 3.
+- No `qa_runs` migration in slice 3 either — repair attempts are still just additional rows.
+- 10 new tests (118/118 server tests passing, up from 108 after slice 2) — see §9.
 
 The rest of this document (§2-§11) is unchanged from the original kickoff plan and remains the
-reference for slices 3-4.
+reference for slice 4.
 
 ## 1. Current orchestrator QA placeholder — evidence
 
@@ -202,25 +221,33 @@ higher) is required so a hung command can't block a job indefinitely — exceedi
 
 ## 6. Repair-loop boundary
 
-Scope, kept intentionally narrow for the first implementation:
+**Implemented (slice 3, 2026-07-06).** Final design, as built:
 
 - Only a **Failed** outcome (§5) triggers a repair attempt. **Errored** outcomes go straight to
   `failed` job status with the raw error surfaced in `job_logs` — no repair attempt wasted on
-  infrastructure problems.
-- A fixed, small maximum repair attempts per job (e.g. 2), tracked by counting existing
-  `qa_runs` rows for the job (§3) — no new column needed to enforce the cap.
-- A repair attempt re-invokes the existing BUILD step's provider call
-  (`server/src/services/orchestrator/index.ts` build stage,  ~line 300's `provider.complete(...)`)
-  with additional context appended: the plan, the previously generated files, and the **exact**
-  failing check's output (per `docs/08-live-preview-runtime.md`'s repair loop step 4 — "Blair
-  receives plan, files, exact error log, dependency manifest"). This reuses the existing BUILD
-  code path rather than inventing a second "repair provider call" path.
+  infrastructure problems. If a check errored *and* another check failed in the same attempt,
+  the errored check still wins — no repair happens at all that round
+  (`decideRepairAction()`, `server/src/services/orchestrator/index.ts`).
+- A fixed maximum of 2 repair attempts per job, tracked by counting existing `qa_runs` rows for
+  the job (§3) — no new column. `decideRepairAction(verification, qaRunsCountForJob,
+  maxRepairAttempts)` is a pure function: `qaRunsCountForJob - 1` = repairs already used;
+  `>= maxRepairAttempts` means the budget is exhausted.
+- A repair attempt re-invokes the same provider-call-then-commit flow as BUILD
+  (`generateAndCommitFiles()`, shared by both BUILD and REPAIR so slice 3 didn't duplicate the
+  commit logic), with a distinct `REPAIR_STAGE_INSTRUCTIONS` prompt: the plan, every file
+  generated so far (build + any prior repair, merged by path via `mergeGeneratedFiles()`), and
+  the **exact** output of every check that failed (per `docs/08-live-preview-runtime.md`'s
+  repair loop step 4 — "Blair receives plan, files, exact error log"), explicitly instructed to
+  return the minimal fix only.
 - After exhausting the repair budget, the job goes to `failed` with the last `qa_runs` row's
   output preserved — a human can read exactly what didn't pass, per `docs/12-testing-quality-gates.md`'s
   Definition of Done ("Generated files pass available checks" or the failure is documented).
-- Out of scope for M4 slice 1-2: repairing *Preview* failures (docs/08's loop is about runtime/
-  preview errors, which is a distinct signal from a build-time lint/typecheck/test failure) —
-  that stays a separate, later slice once the QA-triggered loop is proven.
+- A structural iteration cap in the orchestrator's loop (one notch more permissive than the
+  qa_runs-based cap) guarantees the loop terminates even if the row-counting logic were ever
+  wrong — belt-and-suspenders, not the primary mechanism.
+- Out of scope, still deferred: repairing *Preview* failures (docs/08's loop is about runtime/
+  preview errors, a distinct signal from a build-time lint/typecheck/test failure) — that stays
+  a separate, later slice once the QA-triggered loop is proven in production.
 
 ## 7. Logging/observability requirements
 
@@ -279,14 +306,22 @@ style, `server/src/services/**/*.test.ts` pure-function style):
   way, a skipped check never blocking `ok` on its own, `npm ci` vs `npm install` selection,
   install failure (available checks errored, unavailable stay skipped), and materialization
   failure (all four errored).
-- **Repair-loop boundary** — not yet, slice 3 (§6/§10).
+- ~~**Repair-loop boundary**~~ **Done (slice 3)** — `server/src/services/orchestrator/index.test.ts`
+  (10 new tests) covers `decideRepairAction()` directly (the pure decision function, since
+  `runJobPipeline` itself has no DI harness to test end-to-end): proceeds with no repair when
+  verification passed, a skipped check alone never triggers repair, a failed check triggers
+  repair attempt 1, an errored check blocks repair even alongside a failed check, repairs are
+  offered up to the cap of 2 then fail with `repair_budget_exhausted`, a full
+  fail→repair→repair→proceed sequence, and multi-check failures are all reported (not just the
+  first). Also covers `mergeGeneratedFiles()` (later files win on the same path) and
+  `buildRepairUserMessage()` (includes the plan, files, and every failing check's exact output).
 - ~~**`GET /api/jobs/:id/qa` route**~~ **Done (slice 2)** — `server/src/routes/jobs.test.ts`
   (4 new tests): 404 when the job is missing, empty array before any run exists, returns
   persisted rows most-recent-first, and a masked 500 on a DB error (mirroring the existing
   `GET /api/jobs` 500 test).
-- ~~**No regression**~~ **Done** — `orchestrator/index.test.ts` (`buildPreviewUrl`/
-  `pollPreviewReady`) and the rest of `jobs.test.ts` pass unchanged; full server suite is
-  108/108 (up from 75 before slice 1, 101 after slice 1).
+- ~~**No regression**~~ **Done** — `orchestrator/index.test.ts`'s pre-existing `buildPreviewUrl`/
+  `pollPreviewReady` tests and the rest of `jobs.test.ts` pass unchanged; full server suite is
+  118/118 (75 before slice 1, 101 after slice 1, 108 after slice 2, 118 after slice 3).
 
 ## 10. Incremental implementation slices
 
@@ -314,15 +349,23 @@ next one to already exist to be mergeable and useful.
    `GET /api/jobs/:id/qa` (§8), so a failed job's output is visible. **Not yet confirmed against
    a real Railway deployment** — same caveat as slice 1 (§1), verified via unit tests with
    injected fakes only.
-3. **Slice 3 — Bounded repair loop.** Add the `Failed → BUILD → VERIFY` cycle from §2/§6, capped
-   at a small fixed attempt count, with the exact failing output fed back into the existing BUILD
-   provider call.
+3. ~~**Slice 3 — Bounded repair loop.**~~ **Done (2026-07-06, `feature/m4-verification-slice-3`).**
+   The `Failed → REPAIR → VERIFY` cycle (§2/§6) is implemented: `decideRepairAction()` decides
+   proceed/repair/fail; a `Failed` (not `Errored`, not `skipped`-only) outcome repairs up to 2
+   attempts, capped by counting `qa_runs` rows; `generateAndCommitFiles()` is shared by BUILD and
+   REPAIR so the repair attempt reuses the exact same provider-call-then-commit flow, with a
+   dedicated `REPAIR_STAGE_INSTRUCTIONS` prompt asking for a minimal fix. **Not yet confirmed
+   against a real Railway deployment / real provider** — same caveat as slices 1-2, verified via
+   10 new unit tests against the pure decision function plus `tsc`/build passing.
 4. **Slice 4 — Observability polish + remaining Verify-phase checks.** Structured
-   `job.verify.*`/`job.repair.*` audit events (§7) if slice 1-3 didn't already add them
-   incrementally; evaluate whether preview-error-triggered repair (docs/08's original loop,
-   distinct from build-time QA) and the "Should"-tier checks from `docs/05-agent-lifecycle.md`
-   (accessibility smoke, license check) are in scope for M4 or deferred to a later milestone —
-   this should be an explicit decision recorded before slice 4 starts, not assumed.
+   `job.qa.*`/`job.repair.*` audit events already exist as of slice 3
+   (`job.qa.started`/`job.qa.complete`/`job.qa.failed`/`job.repair.started`/`job.repair.complete`)
+   — slice 4's observability work is `duration_ms`/`command` columns or similar if the API
+   surface work wants to display them (§3), not the events themselves. Also: evaluate whether
+   preview-error-triggered repair (docs/08's original loop, distinct from build-time QA) and the
+   "Should"-tier checks from `docs/05-agent-lifecycle.md` (accessibility smoke, license check)
+   are in scope for M4 or deferred to a later milestone — this should be an explicit decision
+   recorded before slice 4 starts, not assumed.
 
 Slice 1 is deliberately the smallest possible vertical slice that produces one real, persisted,
 non-placeholder QA signal — everything after it is additive.
@@ -346,11 +389,22 @@ Per-slice, plus the milestone-level criteria they roll up to
   outstanding manual-verification caveat as slice 1.
 - **Slice 3 done when:** a job with a known, fixable lint error is repaired within the bounded
   attempt count and reaches `review`; a job with an unfixable error exhausts the budget and
-  reaches `failed` with the last failure's output intact.
+  reaches `failed` with the last failure's output intact. **Status: code complete
+  (`decideRepairAction()`'s branching is directly unit-tested — proceed/repair/fail-errored/
+  fail-exhausted/multi-check, 10 tests), but the end-to-end claim ("a known, fixable lint error
+  is repaired... and reaches review") has NOT been demonstrated against a real provider + real
+  job.** This is the specific outstanding gap flagged for M4's second exit criterion below — the
+  repair loop's *mechanics* are tested, but no real LLM has actually produced a fix that made a
+  previously-failing check pass in this session (no live Postgres/GitHub token/provider API key
+  available). This should be the first thing verified manually before M4 is considered done.
 - **M4 milestone done when** (mirrors `project/milestones.yaml` M4's three exit criteria):
-  "Verification failures produce repair context" (slice 3), "Repair fixes at least one known
-  import/build error" (demonstrated against a real, reproducible case, not asserted), and
-  "Reviewer can approve/request changes" — already partially true today
-  (`server/src/routes/jobs.ts:81-96` approve path exists); a `request-changes` counterpart may be
-  its own small slice or explicitly deferred to M5's review-decision work, per the M4/M5
-  boundary in `docs/engineering/ENGINEERING_MASTER_PLAN.md` §5.
+  "Verification failures produce repair context" — **met**: `buildRepairUserMessage()` gives the
+  provider the plan, generated files, and exact failing output every repair attempt
+  (`server/src/services/orchestrator/index.ts`, `server/src/services/orchestrator/index.test.ts`).
+  "Repair fixes at least one known import/build error" — **not yet met**: requires demonstrating
+  against a real, reproducible case with a real provider, not just asserting the mechanism
+  exists (see the slice 3 status note above). "Reviewer can approve/request changes" — already
+  partially true today (`server/src/routes/jobs.ts:81-96` approve path exists); a
+  `request-changes` counterpart may be its own small slice or explicitly deferred to M5's
+  review-decision work, per the M4/M5 boundary in `docs/engineering/ENGINEERING_MASTER_PLAN.md`
+  §5.

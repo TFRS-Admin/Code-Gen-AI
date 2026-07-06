@@ -1,14 +1,19 @@
 import { query, queryOne } from '../../db/client';
-import { getProvider } from '../providers';
+import { getProvider, Provider } from '../providers';
 import { logEvent } from '../audit';
 import { BLAIR_SYSTEM_PROMPT } from '../blairPrompt';
 import * as github from '../github';
 import { config } from '../../config';
 import { v4 as uuidv4 } from 'uuid';
-import { runVerification } from '../verification/verify';
+import { runVerification, listQaRuns, VerificationResult } from '../verification/verify';
 import type { CheckName } from '../verification/checks';
 
 const CHECK_NAMES: CheckName[] = ['lint', 'build', 'typecheck', 'test'];
+
+// M4 slice 3 (docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md section 6): bounded
+// repair loop. A `failed` check gets up to this many repair attempts before the
+// job gives up; an `errored` check never triggers a repair (see runJobPipeline).
+const MAX_REPAIR_ATTEMPTS = 2;
 
 export interface JobInput {
   repoUrl: string;
@@ -17,7 +22,7 @@ export interface JobInput {
   provider?: string;
 }
 
-interface GeneratedFile {
+export interface GeneratedFile {
   path: string;
   content: string;
   action: 'create' | 'update' | 'delete';
@@ -50,6 +55,33 @@ Rules:
 - Always write complete file contents, never partial diffs
 - Follow the existing code style of the repository
 - Use the same import patterns as existing files
+- Never add dependencies not already in package.json
+- Maximum 10 files per response
+`;
+
+// M4 slice 3: repair prompt. Deliberately asks for a minimal fix, not a
+// rewrite — the repair loop is bounded (MAX_REPAIR_ATTEMPTS), so each attempt
+// should converge toward passing rather than re-implementing the feature.
+const REPAIR_STAGE_INSTRUCTIONS = `
+A previous attempt to implement this feature failed verification. You must fix the
+reported failure(s) without breaking anything else.
+
+You will receive:
+1. The original plan (JSON)
+2. The files generated so far
+3. Which check(s) failed (lint/build/typecheck/test) and their exact failure output
+
+You must respond with ONLY valid JSON in this exact format:
+{
+  "files": [
+    { "path": "src/pages/Example.jsx", "content": "...full file content...", "action": "update" }
+  ],
+  "summary": "One sentence describing the fix"
+}
+
+Rules:
+- Return the minimal fix only — do not rewrite files that aren't implicated by the failure output
+- Always write complete file contents for any file you do include, never partial diffs
 - Never add dependencies not already in package.json
 - Maximum 10 files per response
 `;
@@ -233,6 +265,174 @@ function parseBuildResponse(raw: string): { files: GeneratedFile[]; summary: str
   return { files, summary: typeof parsed?.summary === 'string' ? parsed.summary : '' };
 }
 
+interface GenerateAndCommitResult {
+  files: GeneratedFile[];
+  summary: string;
+  committedCount: number;
+}
+
+/**
+ * Shared by BUILD and REPAIR: calls the provider, parses its files[] response,
+ * and commits each file to the feature branch via the GitHub API. Extracted
+ * so slice 3's repair attempts reuse the exact same generation/commit flow as
+ * the initial build rather than duplicating it (docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md
+ * section 2, "reuse the existing BUILD provider flow where practical").
+ */
+async function generateAndCommitFiles(params: {
+  jobId: string;
+  provider: Provider;
+  owner: string;
+  repo: string;
+  featureBranch: string;
+  systemPrompt: string;
+  userMessage: string;
+  logPrefix: string;
+}): Promise<GenerateAndCommitResult> {
+  const { jobId, provider, owner, repo, featureBranch, systemPrompt, userMessage, logPrefix } = params;
+
+  await appendLog(jobId, `${logPrefix} Generating implementation...`);
+  const response = await provider.complete([{ role: 'user', content: userMessage }], systemPrompt);
+  const { files, summary } = parseBuildResponse(response.content);
+  if (summary) {
+    await appendLog(jobId, `${logPrefix} Summary: ${summary}`);
+  }
+
+  await appendLog(jobId, `${logPrefix} Committing files...`);
+  let committedCount = 0;
+  for (const file of files) {
+    try {
+      if (file.action === 'delete') {
+        await github.deleteFile(owner, repo, featureBranch, file.path, `Blair: delete ${file.path}`);
+      } else {
+        await github.upsertFile(owner, repo, featureBranch, file.path, file.content, `Blair: ${file.action} ${file.path}`);
+      }
+      committedCount++;
+      await appendLog(jobId, `${logPrefix} Committed: ${file.path}`);
+    } catch (err: any) {
+      await appendLog(jobId, `${logPrefix} Failed to commit ${file.path}: ${err.message}`);
+    }
+  }
+
+  return { files, summary, committedCount };
+}
+
+/** Merges a new batch of generated files into the accumulated by-path map (later commits win on the same path). */
+export function mergeGeneratedFiles(existing: Map<string, GeneratedFile>, incoming: GeneratedFile[]): Map<string, GeneratedFile> {
+  const merged = new Map(existing);
+  for (const file of incoming) merged.set(file.path, file);
+  return merged;
+}
+
+/**
+ * Builds the REPAIR step's provider prompt: the original plan, every file
+ * generated so far (build + any prior repairs), and the exact output of
+ * every check that actually failed (not errored — those never reach here).
+ */
+export function buildRepairUserMessage(
+  plan: Record<string, any>,
+  generatedFiles: GeneratedFile[],
+  failedChecks: Array<{ name: CheckName; output: string }>
+): string {
+  const filesBlock = generatedFiles
+    .map((f) => `--- ${f.path} (${f.action}) ---\n${truncateContent(f.content, MAX_FILE_LINES)}`)
+    .join('\n\n');
+  const failuresBlock = failedChecks
+    .map((f) => `### ${f.name}\n${truncateContent(f.output, MAX_FILE_LINES)}`)
+    .join('\n\n');
+
+  return [
+    `Plan:\n${JSON.stringify(plan, null, 2)}`,
+    `Files generated so far:\n${filesBlock || '(none)'}`,
+    `Failing check(s):\n${failuresBlock}`,
+  ].join('\n\n');
+}
+
+/** Runs verification once, logs each check's outcome, and records the qa.complete audit event. Shared by the initial QA pass and every re-verification after a repair. */
+async function runVerificationStep(
+  jobId: string,
+  owner: string,
+  repo: string,
+  branch: string,
+  attempt: number
+): Promise<VerificationResult> {
+  await logEvent(jobId, 'job.qa.started', { attempt });
+  await appendLog(jobId, '[QA] Materializing workspace and checking for available scripts...');
+
+  const verification = await runVerification({ jobId, owner, repo, branch });
+  const { checks } = verification;
+
+  for (const name of CHECK_NAMES) {
+    const result = checks[name];
+    if (result.outcome === 'skipped') {
+      await appendLog(jobId, `[QA] No ${name} script found in package.json — skipped.`);
+    } else if (result.outcome === 'passed') {
+      await appendLog(jobId, `[QA] ${name} passed.`);
+    } else if (result.outcome === 'failed') {
+      await appendLog(jobId, `[QA] ${name} failed.`);
+    } else {
+      await appendLog(jobId, `[QA] ${name} could not run: ${result.output.slice(0, 500)}`);
+    }
+  }
+
+  await logEvent(jobId, 'job.qa.complete', {
+    attempt,
+    ok: verification.ok,
+    qaRunId: verification.qaRun.id,
+    outcomes: Object.fromEntries(CHECK_NAMES.map((name) => [name, checks[name].outcome])),
+  });
+
+  return verification;
+}
+
+export type RepairDecision =
+  | { action: 'proceed' }
+  | { action: 'repair'; attemptNumber: number; failedChecks: CheckName[] }
+  | { action: 'fail'; reason: 'errored' | 'repair_budget_exhausted' | 'no_failed_check_found'; detail: string };
+
+/**
+ * Pure decision function for the M4 slice 3 repair loop — exported so its
+ * behavior is directly unit-testable without needing a live DB/GitHub/
+ * provider harness around the full `runJobPipeline` (which, like the rest of
+ * this file's PLAN/BUILD/PREVIEW/REVIEW steps, is not otherwise unit tested;
+ * only extracted pure logic like this and `buildPreviewUrl` is).
+ *
+ * `qaRunsCountForJob` is the number of qa_runs rows already persisted for
+ * this job, including the one just written for `verification` — i.e. 1 means
+ * "only the initial attempt has run", 2 means "one repair has already been
+ * tried", etc. This is how repair attempts are counted (per
+ * docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md section 6): no new column,
+ * just COUNT(*) WHERE job_id = X.
+ */
+export function decideRepairAction(
+  verification: VerificationResult,
+  qaRunsCountForJob: number,
+  maxRepairAttempts: number
+): RepairDecision {
+  if (verification.ok) return { action: 'proceed' };
+
+  // An errored check is an infrastructure problem (timeout, install failure,
+  // workspace materialization failure) — never evidence the generated code
+  // is wrong, so it's never repaired, regardless of what else did or didn't fail.
+  const erroredCheck = CHECK_NAMES.find((name) => verification.checks[name].outcome === 'errored');
+  if (erroredCheck) {
+    return { action: 'fail', reason: 'errored', detail: erroredCheck };
+  }
+
+  const failedChecks = CHECK_NAMES.filter((name) => verification.checks[name].outcome === 'failed');
+  if (failedChecks.length === 0) {
+    // Defensive: !verification.ok with nothing failed or errored should be unreachable
+    // (isOk() in verify.ts only returns false when something failed or errored).
+    return { action: 'fail', reason: 'no_failed_check_found', detail: '' };
+  }
+
+  const repairsUsed = qaRunsCountForJob - 1; // the first row is the initial attempt, not a repair
+  if (repairsUsed >= maxRepairAttempts) {
+    return { action: 'fail', reason: 'repair_budget_exhausted', detail: failedChecks.join(', ') };
+  }
+
+  return { action: 'repair', attemptNumber: repairsUsed + 1, failedChecks };
+}
+
 // ─────────────────────────────────────────────
 // The core pipeline — runs each step in sequence
 // ─────────────────────────────────────────────
@@ -301,15 +501,6 @@ async function runJobPipeline(jobId: string): Promise<void> {
     `User request:\n${job.prompt}`,
   ].join('\n\n');
 
-  const buildResponse = await provider.complete(
-    [{ role: 'user', content: buildUserMessage }],
-    `${BLAIR_SYSTEM_PROMPT}\n\n${BUILD_STAGE_INSTRUCTIONS}`
-  );
-  const { files, summary } = parseBuildResponse(buildResponse.content);
-  if (summary) {
-    await appendLog(jobId, `[BUILD] Summary: ${summary}`);
-  }
-
   await appendLog(jobId, '[BUILD] Creating feature branch...');
   const baseSha = await github.getBranchSha(owner, repo, job.base_branch);
   try {
@@ -332,69 +523,87 @@ async function runJobPipeline(jobId: string): Promise<void> {
     await appendLog(jobId, '[BUILD] RAILWAY_PROJECT_ID not configured — skipping preview URL.');
   }
 
-  await appendLog(jobId, '[BUILD] Committing files...');
-  let committedCount = 0;
-  for (const file of files) {
-    try {
-      if (file.action === 'delete') {
-        await github.deleteFile(owner, repo, featureBranch, file.path, `Blair: delete ${file.path}`);
-      } else {
-        await github.upsertFile(
-          owner,
-          repo,
-          featureBranch,
-          file.path,
-          file.content,
-          `Blair: ${file.action} ${file.path}`
-        );
-      }
-      committedCount++;
-      await appendLog(jobId, `[BUILD] Committed: ${file.path}`);
-    } catch (err: any) {
-      await appendLog(jobId, `[BUILD] Failed to commit ${file.path}: ${err.message}`);
-    }
-  }
-
-  await logEvent(jobId, 'job.building.complete', { filesCommitted: committedCount });
-  await appendLog(jobId, `[BUILD] Complete. ${committedCount} files committed.`);
-
-  // ── Step 4: QA ──
-  // M4 slice 2 (docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md): runs every
-  // check the target repo defines (lint/build/typecheck/test) against a
-  // materialized copy of the feature branch and persists one real qa_runs
-  // row. Now gates the pipeline: a failed or errored check marks the job
-  // 'failed' and stops before PREVIEW/REVIEW; a skipped check never blocks
-  // it. Still no repair loop (slice 3).
-  await updateJobStatus(jobId, 'qa');
-  await logEvent(jobId, 'job.qa.started');
-  await appendLog(jobId, '[QA] Materializing workspace and checking for available scripts...');
-
-  const verification = await runVerification({ jobId, owner, repo, branch: featureBranch });
-  const { checks } = verification;
-
-  for (const name of CHECK_NAMES) {
-    const result = checks[name];
-    if (result.outcome === 'skipped') {
-      await appendLog(jobId, `[QA] No ${name} script found in package.json — skipped.`);
-    } else if (result.outcome === 'passed') {
-      await appendLog(jobId, `[QA] ${name} passed.`);
-    } else if (result.outcome === 'failed') {
-      await appendLog(jobId, `[QA] ${name} failed.`);
-    } else {
-      await appendLog(jobId, `[QA] ${name} could not run: ${result.output.slice(0, 500)}`);
-    }
-  }
-
-  await logEvent(jobId, 'job.qa.complete', {
-    ok: verification.ok,
-    qaRunId: verification.qaRun.id,
-    outcomes: Object.fromEntries(CHECK_NAMES.map((name) => [name, checks[name].outcome])),
+  const buildResult = await generateAndCommitFiles({
+    jobId,
+    provider,
+    owner,
+    repo,
+    featureBranch,
+    systemPrompt: `${BLAIR_SYSTEM_PROMPT}\n\n${BUILD_STAGE_INSTRUCTIONS}`,
+    userMessage: buildUserMessage,
+    logPrefix: '[BUILD]',
   });
+  let generatedFiles = mergeGeneratedFiles(new Map(), buildResult.files);
 
-  if (!verification.ok) {
-    await logEvent(jobId, 'job.qa.failed');
-    await appendLog(jobId, '[QA] Verification failed — stopping before PREVIEW. See qa_runs for details.');
-    throw new Error('Verification failed: one or more checks did not pass. See qa_runs for details.');
+  await logEvent(jobId, 'job.building.complete', { filesCommitted: buildResult.committedCount });
+  await appendLog(jobId, `[BUILD] Complete. ${buildResult.committedCount} files committed.`);
+
+  // ── Step 4: QA (+ bounded repair loop, M4 slice 3) ──
+  // Runs every check the target repo defines (lint/build/typecheck/test)
+  // against a materialized copy of the feature branch and persists one real
+  // qa_runs row per attempt. A `failed` check gets up to MAX_REPAIR_ATTEMPTS
+  // repair attempts (re-invoking the BUILD provider flow with the exact
+  // failure output, per docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md
+  // section 6) before the job gives up. An `errored` check is never
+  // repaired — it's an infrastructure problem, not evidence the generated
+  // code is wrong — and fails the job immediately. A `skipped` check never
+  // blocks progression.
+  await updateJobStatus(jobId, 'qa');
+
+  let verification = await runVerificationStep(jobId, owner, repo, featureBranch, 1);
+
+  // Structural safety net, independent of decideRepairAction's own qa_runs-based
+  // cap: even if that counting were ever wrong, this loop still cannot run
+  // forever. Bounded one notch more generously than the real cap
+  // (MAX_REPAIR_ATTEMPTS) so decideRepairAction's 'repair_budget_exhausted'
+  // check is always what actually stops it, not this outer bound.
+  for (let loopIteration = 0; loopIteration <= MAX_REPAIR_ATTEMPTS; loopIteration++) {
+    const qaRunsSoFar = await listQaRuns(jobId);
+    const decision = decideRepairAction(verification, qaRunsSoFar.length, MAX_REPAIR_ATTEMPTS);
+
+    if (decision.action === 'proceed') break;
+
+    if (decision.action === 'fail') {
+      await logEvent(jobId, 'job.qa.failed', { reason: decision.reason, detail: decision.detail });
+      if (decision.reason === 'errored') {
+        await appendLog(jobId, `[QA] ${decision.detail} errored — not repairable, stopping before PREVIEW.`);
+        throw new Error(`Verification errored on ${decision.detail}: an infrastructure problem, not repairable. See qa_runs for details.`);
+      }
+      if (decision.reason === 'repair_budget_exhausted') {
+        await appendLog(jobId, `[QA] ${decision.detail} still failing after ${MAX_REPAIR_ATTEMPTS} repair attempts — stopping before PREVIEW.`);
+        throw new Error(`Verification failed: ${decision.detail} did not pass after ${MAX_REPAIR_ATTEMPTS} repair attempts. See qa_runs for details.`);
+      }
+      throw new Error('Verification failed but no check was reported as failed or errored. See qa_runs for details.');
+    }
+
+    // decision.action === 'repair'
+    const { attemptNumber, failedChecks } = decision;
+    await logEvent(jobId, 'job.repair.started', { attempt: attemptNumber, maxAttempts: MAX_REPAIR_ATTEMPTS, checks: failedChecks });
+    await appendLog(jobId, `[REPAIR] Attempt ${attemptNumber}/${MAX_REPAIR_ATTEMPTS}: fixing ${failedChecks.join(', ')}...`);
+
+    const repairUserMessage = buildRepairUserMessage(
+      plan,
+      Array.from(generatedFiles.values()),
+      failedChecks.map((name) => ({ name, output: verification.checks[name].output }))
+    );
+    const repairResult = await generateAndCommitFiles({
+      jobId,
+      provider,
+      owner,
+      repo,
+      featureBranch,
+      systemPrompt: `${BLAIR_SYSTEM_PROMPT}\n\n${REPAIR_STAGE_INSTRUCTIONS}`,
+      userMessage: repairUserMessage,
+      logPrefix: '[REPAIR]',
+    });
+    generatedFiles = mergeGeneratedFiles(generatedFiles, repairResult.files);
+
+    await logEvent(jobId, 'job.repair.complete', { attempt: attemptNumber, filesCommitted: repairResult.committedCount });
+    await appendLog(jobId, `[REPAIR] Attempt ${attemptNumber} complete. Re-running verification...`);
+
+    verification = await runVerificationStep(jobId, owner, repo, featureBranch, attemptNumber + 1);
+    // Loop back to the top: the next iteration re-evaluates decideRepairAction
+    // against this fresh verification result before attempting anything else.
   }
 
   await appendLog(jobId, '[QA] Complete.');

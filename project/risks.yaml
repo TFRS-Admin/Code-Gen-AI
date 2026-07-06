@@ -97,14 +97,15 @@ risks:
       slices.
     status: partially_mitigated
     repo_evidence: >
-      Slices 1-2 done (2026-07-06, feature/m4-verification-slice-2): the 'qa' phase
+      Slices 1-3 done (2026-07-06, feature/m4-verification-slice-3): the 'qa' phase
       (server/src/services/orchestrator/index.ts) now runs all four checks
       (lint/build/typecheck/test) via server/src/services/verification/{workspace,checks,verify}.ts,
-      writes a real qa_runs row every time, and gates the pipeline — a failed/errored check now
-      marks the job 'failed' instead of proceeding to review. Still open: no repair loop yet
-      (slice 3), so a job that fails verification currently just stops rather than being fixed
-      automatically (see RISK-17). Probability/impact both downgraded further now that the
-      pipeline no longer silently reaches review with a known-bad build.
+      writes a real qa_runs row every attempt, gates the pipeline, and repairs a failed check up
+      to 2 times (decideRepairAction()) before failing the job — an errored check still fails
+      immediately, never repaired. Still open: the repair loop's mechanics are unit-tested but
+      have never been exercised against a real provider/job (see RISK-18) — until that's
+      demonstrated, "the pipeline no longer silently reaches review with a known-bad build" is
+      confirmed, but "repairs actually work" is not.
 
   - id: RISK-8
     title: "No enforcement of the component dependency allowlist/disallow list at build time"
@@ -253,17 +254,37 @@ risks:
   - id: RISK-17
     title: "A job that fails verification now just stops — no automatic repair yet"
     source: "M4 slice 2 implementation"
-    probability: high
+    probability: low
     impact: medium
     mitigation: >
-      Implement M4 slice 3 (docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md sections 6/10):
-      on a Failed (not Errored) outcome, feed the exact failing check's output back into the
-      existing BUILD provider call, capped at a small fixed attempt count. Until then, a human
-      has to notice the failed job and re-run/fix it manually.
+      Resolved by M4 slice 3 (2026-07-06, feature/m4-verification-slice-3):
+      decideRepairAction() re-invokes the BUILD provider flow with the exact failing check's
+      output on a Failed (not Errored) outcome, capped at 2 attempts.
+    status: mitigated
+    repo_evidence: >
+      server/src/services/orchestrator/index.ts's QA step now calls decideRepairAction() before
+      giving up; a 'repair' decision re-invokes generateAndCommitFiles() with
+      REPAIR_STAGE_INSTRUCTIONS and re-verifies. Residual risk (probability downgraded, not
+      closed): the repair mechanism itself is unit-tested but has never been exercised against a
+      real provider/job — see RISK-18.
+
+  # ── New risk from the M4 slice 3 implementation (2026-07-06) ──
+  - id: RISK-18
+    title: "The repair loop's mechanics are unit-tested, but a real repair has never been demonstrated"
+    source: "M4 slice 3 implementation"
+    probability: medium
+    impact: high
+    mitigation: >
+      Run a real job end-to-end (live Postgres, GitHub token, real provider API key — e.g.
+      OpenAI or Anthropic, not the mock provider) against a repo with a deliberately introduced,
+      fixable lint/build/typecheck/test error, and confirm: the failure is detected, the repair
+      prompt is sent, the provider's fix is committed, and re-verification passes. Tracked as
+      SPR-12 in project/active-sprint.yaml.
     status: open
     repo_evidence: >
-      server/src/services/orchestrator/index.ts's QA step now throws when
-      runVerification's `ok` is false, which server/src/services/orchestrator/index.ts's
-      createJob().catch() turns into status='failed' — a deliberate, correct behavior change
-      from M4 slice 1/pre-M4 (where a bad build always silently reached 'review'), but it means
-      more jobs may now end in 'failed' with no automatic recovery path until slice 3 lands.
+      server/src/services/orchestrator/index.test.ts's 10 new tests all call
+      decideRepairAction() directly with hand-constructed VerificationResult fixtures — none of
+      them invoke a real provider, real GitHub API, or real qa_runs table. No session so far has
+      had a live Postgres/GitHub token/provider API key available to run the full pipeline
+      end-to-end. M4's "Repair fixes at least one known import/build error" exit criterion
+      (project/milestones.yaml M4) explicitly requires this and is not yet met.
