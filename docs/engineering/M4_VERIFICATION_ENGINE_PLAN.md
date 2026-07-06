@@ -1,6 +1,6 @@
 # M4 Verification Engine — Kickoff Plan
 
-Status: **Slice 3 implemented (2026-07-06).** Owner: Full-stack/QA.
+Status: **All 4 slices implemented (2026-07-06).** Owner: Full-stack/QA.
 
 This plan grounds M4 ("Verification / Repair Loop") in what is actually running today, per
 `docs/engineering/ENGINEERING_MASTER_PLAN.md` §3/§5 and `project/milestones.yaml` M4. It
@@ -54,8 +54,38 @@ originally shipped as planning-only; slices 1-3 (§10) are now implemented.
 - No `qa_runs` migration in slice 3 either — repair attempts are still just additional rows.
 - 10 new tests (118/118 server tests passing, up from 108 after slice 2) — see §9.
 
-The rest of this document (§2-§11) is unchanged from the original kickoff plan and remains the
-reference for slice 4.
+**Slice 4** (`feature/m4-verification-slice-4`, on top of slice 3, which merged to `main` via
+PR #27):
+
+- Four explicit, final scope decisions, recorded in
+  `adr/0008-m4-verification-scope-boundaries.md` (Accepted): preview-error-triggered repair
+  (§2's original design, distinct from the QA-step repair loop) — **deferred**, no capture
+  mechanism exists yet; accessibility smoke checks — **deferred**, would need a running preview
+  instance to test against, not expressible as a `package.json` script the way the existing four
+  checks are; license checks — **deferred, out of the verification engine's scope entirely**,
+  already owned by M3.3/RISK-3/RISK-8 as a harvester concern; structured timing — **added now,
+  in-memory only**.
+- `server/src/services/verification/checks.ts`'s `CheckResult` gained a `durationMs: number |
+  null` field, measured with `Date.now()` deltas around `runCommand`'s and `runInstall`'s
+  `exec()` calls. `null` means the check's command was never actually invoked (skipped, or an
+  upstream failure — a failed install or workspace materialization — that never reached the
+  check); every outcome that did actually execute (passed, failed, or errored via timeout/spawn
+  failure) carries a real measured value. Not persisted to `qa_runs` — no migration, since no
+  consumer of a `duration_ms` column exists yet (§3, unchanged).
+- Real, partial progress on the slice 1-3 "not yet run against a real job" caveat (RISK-18/
+  SPR-12): a locally-started Postgres instance had all 5 migrations applied for the first time
+  in this project's history, and `persistQaRun`/`listQaRuns` were exercised against that genuine
+  database (not injected fakes), confirming correct round-trip behavior and most-recent-first
+  ordering. The GitHub-API and real-provider legs of a full end-to-end job remain blocked in
+  this environment (a non-functional `GITHUB_TOKEN` session-proxy placeholder, confirmed via a
+  direct `403` against the real GitHub API; no provider API key present) — see §11's updated
+  status notes.
+- 1 new/updated test file group (`checks.test.ts`, `verify.test.ts`), asserting every
+  passed/failed/errored check reports a numeric `durationMs` and every skipped (or
+  never-invoked) check reports `null` (119/119 server tests passing, up from 118 after slice 3).
+
+The rest of this document (§2-§9) is unchanged from the original kickoff plan; §10-§11 are
+updated below to reflect slice 4 and the current verification status.
 
 ## 1. Current orchestrator QA placeholder — evidence
 
@@ -294,10 +324,11 @@ style, `server/src/services/**/*.test.ts` pure-function style):
 - ~~**Check detection**~~ **Done** — `server/src/services/verification/checks.test.ts` covers
   `detectAvailableChecks` (5 tests: missing/unparsable/absent-scripts/mixed/non-string-value
   cases) and `readPackageJson` (2 tests).
-- ~~**Command execution wrapper**~~ **Done** — same file, `runCommand`/`runInstall` (9 tests):
-  passed (exit 0), failed (non-zero exit), errored (timeout via `killed`/`signal`), errored
-  (spawn-level `ENOENT`), `npm ci` vs `npm install` argv selection, and install failures always
-  classified `errored` (never `failed`).
+- ~~**Command execution wrapper**~~ **Done, extended in slice 4** — same file,
+  `runCommand`/`runInstall` (10 tests): passed (exit 0), failed (non-zero exit), errored
+  (timeout via `killed`/`signal`), errored (spawn-level `ENOENT`), `npm ci` vs `npm install` argv
+  selection, and install failures always classified `errored` (never `failed`) — each
+  passed/failed/errored case now also asserts `durationMs` is a real measured number (slice 4).
 - ~~**`qa_runs` persistence**~~ **Done, at the `runVerification` level** —
   `server/src/services/verification/verify.test.ts` (9 tests, extended in slice 2) asserts the
   exact `NewQaRun` shape (all four `*Passed`/`*Output` fields) passed to an injected
@@ -305,7 +336,9 @@ style, `server/src/services/**/*.test.ts` pure-function style):
   a failed check blocking `ok` while others still run, an errored check blocking `ok` the same
   way, a skipped check never blocking `ok` on its own, `npm ci` vs `npm install` selection,
   install failure (available checks errored, unavailable stay skipped), and materialization
-  failure (all four errored).
+  failure (all four errored). Extended in slice 4: skipped checks assert `durationMs === null`;
+  checks that actually ran (passed, failed, errored via install failure or materialization
+  failure) assert the expected numeric-vs-`null` `durationMs` semantics described above.
 - ~~**Repair-loop boundary**~~ **Done (slice 3)** — `server/src/services/orchestrator/index.test.ts`
   (10 new tests) covers `decideRepairAction()` directly (the pure decision function, since
   `runJobPipeline` itself has no DI harness to test end-to-end): proceeds with no repair when
@@ -357,15 +390,14 @@ next one to already exist to be mergeable and useful.
    dedicated `REPAIR_STAGE_INSTRUCTIONS` prompt asking for a minimal fix. **Not yet confirmed
    against a real Railway deployment / real provider** — same caveat as slices 1-2, verified via
    10 new unit tests against the pure decision function plus `tsc`/build passing.
-4. **Slice 4 — Observability polish + remaining Verify-phase checks.** Structured
-   `job.qa.*`/`job.repair.*` audit events already exist as of slice 3
-   (`job.qa.started`/`job.qa.complete`/`job.qa.failed`/`job.repair.started`/`job.repair.complete`)
-   — slice 4's observability work is `duration_ms`/`command` columns or similar if the API
-   surface work wants to display them (§3), not the events themselves. Also: evaluate whether
-   preview-error-triggered repair (docs/08's original loop, distinct from build-time QA) and the
-   "Should"-tier checks from `docs/05-agent-lifecycle.md` (accessibility smoke, license check)
-   are in scope for M4 or deferred to a later milestone — this should be an explicit decision
-   recorded before slice 4 starts, not assumed.
+4. ~~**Slice 4 — Observability polish + remaining Verify-phase checks.**~~ **Done (2026-07-06,
+   `feature/m4-verification-slice-4`).** Structured `job.qa.*`/`job.repair.*` audit events already
+   existed as of slice 3; slice 4's observability work is the in-memory `durationMs` field on
+   `CheckResult` (described in the slice 4 summary above), not new events. The three open scope
+   questions (preview-error-triggered repair, accessibility smoke, license checks) are now
+   explicit, final decisions — all three deferred — recorded in
+   `adr/0008-m4-verification-scope-boundaries.md` rather than
+   left as an open evaluation.
 
 Slice 1 is deliberately the smallest possible vertical slice that produces one real, persisted,
 non-placeholder QA signal — everything after it is additive.
@@ -397,14 +429,27 @@ Per-slice, plus the milestone-level criteria they roll up to
   repair loop's *mechanics* are tested, but no real LLM has actually produced a fix that made a
   previously-failing check pass in this session (no live Postgres/GitHub token/provider API key
   available). This should be the first thing verified manually before M4 is considered done.
+- **Slice 4 done when:** the four open scope questions (preview-error repair, accessibility
+  smoke, license checks, structured timing) have explicit, evidence-backed, final decisions, and
+  `durationMs` is available on every in-memory `CheckResult`. **Status: done.**
+  `adr/0008-m4-verification-scope-boundaries.md` (Accepted) records all four decisions;
+  `server/src/services/verification/checks.ts`'s `CheckResult.durationMs` is populated by
+  `runCommand`/`runInstall` and covered by tests asserting a numeric value for passed/failed/
+  errored checks and `null` for skipped/never-invoked ones (§9). Slice 4 also produced real,
+  partial progress on the slice 1-3 "not yet run against a real job" gap: the `qa_runs`
+  persistence layer was exercised against a genuine local Postgres instance for the first time
+  this session — but the GitHub-API and real-provider legs (a working `GITHUB_TOKEN`, a provider
+  API key) were still unavailable, so this remains a documented blocker, not a demonstrated
+  success.
 - **M4 milestone done when** (mirrors `project/milestones.yaml` M4's three exit criteria):
   "Verification failures produce repair context" — **met**: `buildRepairUserMessage()` gives the
   provider the plan, generated files, and exact failing output every repair attempt
   (`server/src/services/orchestrator/index.ts`, `server/src/services/orchestrator/index.test.ts`).
   "Repair fixes at least one known import/build error" — **not yet met**: requires demonstrating
   against a real, reproducible case with a real provider, not just asserting the mechanism
-  exists (see the slice 3 status note above). "Reviewer can approve/request changes" — already
-  partially true today (`server/src/routes/jobs.ts:81-96` approve path exists); a
-  `request-changes` counterpart may be its own small slice or explicitly deferred to M5's
-  review-decision work, per the M4/M5 boundary in `docs/engineering/ENGINEERING_MASTER_PLAN.md`
-  §5.
+  exists (see the slice 3 status note above) — narrowed but not closed by slice 4's real
+  Postgres verification (the DB layer is now proven; the GitHub/provider layers are not).
+  "Reviewer can approve/request changes" — already partially true today
+  (`server/src/routes/jobs.ts:81-96` approve path exists); a `request-changes` counterpart may
+  be its own small slice or explicitly deferred to M5's review-decision work, per the M4/M5
+  boundary in `docs/engineering/ENGINEERING_MASTER_PLAN.md` §5.

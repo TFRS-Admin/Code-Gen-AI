@@ -59,6 +59,15 @@ export interface CheckResult {
   outcome: CheckOutcome;
   output: string;
   exitCode: number | null;
+  /**
+   * Wall-clock time the check's command actually ran, in milliseconds.
+   * `null` means the command was never invoked at all (verify.ts's
+   * skipped/upstream-errored results, built without calling runCommand/
+   * runInstall) — every outcome runCommand/runInstall themselves produce
+   * below (passed, failed, and errored-via-timeout-or-spawn-failure) always
+   * carries a real measured value, since exec() was attempted in each case.
+   */
+  durationMs: number | null;
 }
 
 export interface ExecResult {
@@ -109,6 +118,7 @@ export interface RunCommandOptions {
 export async function runCommand(scriptName: CheckName, options: RunCommandOptions): Promise<CheckResult> {
   const exec = options.exec ?? defaultExec;
   const timeoutMs = options.timeoutMs ?? DEFAULT_CHECK_TIMEOUT_MS;
+  const startedAt = Date.now();
 
   try {
     const { stdout, stderr } = await exec('npm', ['run', scriptName], {
@@ -116,9 +126,9 @@ export async function runCommand(scriptName: CheckName, options: RunCommandOptio
       timeout: timeoutMs,
       maxBuffer: MAX_EXEC_BUFFER_BYTES,
     });
-    return { outcome: 'passed', output: combineOutput(stdout, stderr), exitCode: 0 };
+    return { outcome: 'passed', output: combineOutput(stdout, stderr), exitCode: 0, durationMs: Date.now() - startedAt };
   } catch (err: any) {
-    return classifyExecError(err, `${scriptName} timed out after ${timeoutMs}ms`);
+    return classifyExecError(err, `${scriptName} timed out after ${timeoutMs}ms`, Date.now() - startedAt);
   }
 }
 
@@ -139,6 +149,7 @@ export async function runInstall(options: RunInstallOptions): Promise<CheckResul
   const exec = options.exec ?? defaultExec;
   const timeoutMs = options.timeoutMs ?? DEFAULT_INSTALL_TIMEOUT_MS;
   const args = options.hasLockfile ? ['ci'] : ['install'];
+  const startedAt = Date.now();
 
   try {
     const { stdout, stderr } = await exec('npm', args, {
@@ -146,27 +157,27 @@ export async function runInstall(options: RunInstallOptions): Promise<CheckResul
       timeout: timeoutMs,
       maxBuffer: MAX_EXEC_BUFFER_BYTES,
     });
-    return { outcome: 'passed', output: combineOutput(stdout, stderr), exitCode: 0 };
+    return { outcome: 'passed', output: combineOutput(stdout, stderr), exitCode: 0, durationMs: Date.now() - startedAt };
   } catch (err: any) {
-    const classified = classifyExecError(err, `npm ${args[0]} timed out after ${timeoutMs}ms`);
+    const classified = classifyExecError(err, `npm ${args[0]} timed out after ${timeoutMs}ms`, Date.now() - startedAt);
     // Install has no "found problems in the code" outcome — a non-zero exit
     // here is still an infrastructure/environment failure, not a "failed" check.
     return classified.outcome === 'failed' ? { ...classified, outcome: 'errored' } : classified;
   }
 }
 
-function classifyExecError(err: any, timeoutMessage: string): CheckResult {
+function classifyExecError(err: any, timeoutMessage: string, durationMs: number): CheckResult {
   const stdout = typeof err?.stdout === 'string' ? err.stdout : '';
   const stderr = typeof err?.stderr === 'string' ? err.stderr : '';
   const output = combineOutput(stdout, stderr);
 
   if (err?.killed || err?.signal) {
-    return { outcome: 'errored', output: output || timeoutMessage, exitCode: null };
+    return { outcome: 'errored', output: output || timeoutMessage, exitCode: null, durationMs };
   }
   if (typeof err?.code === 'number') {
-    return { outcome: 'failed', output, exitCode: err.code };
+    return { outcome: 'failed', output, exitCode: err.code, durationMs };
   }
   // Anything else (ENOENT — npm not found, other spawn-level errors) is an
   // infrastructure error, not evidence the generated code is wrong.
-  return { outcome: 'errored', output: output || String(err?.message ?? err), exitCode: null };
+  return { outcome: 'errored', output: output || String(err?.message ?? err), exitCode: null, durationMs };
 }

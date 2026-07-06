@@ -51,13 +51,17 @@ test('readPackageJson: returns null when package.json is absent, rather than thr
   }
 });
 
-test('runCommand: classifies a zero exit code as passed', async () => {
+test('runCommand: classifies a zero exit code as passed, and reports a measured duration', async () => {
   const exec = async () => ({ stdout: 'no problems', stderr: '' });
   const result = await runCommand('lint', { cwd: '/tmp', exec });
-  assert.deepEqual(result, { outcome: 'passed', output: 'no problems', exitCode: 0 });
+  assert.equal(result.outcome, 'passed');
+  assert.equal(result.output, 'no problems');
+  assert.equal(result.exitCode, 0);
+  assert.equal(typeof result.durationMs, 'number');
+  assert.ok(result.durationMs! >= 0);
 });
 
-test('runCommand: classifies a non-zero exit code as failed, preserving output', async () => {
+test('runCommand: classifies a non-zero exit code as failed, preserving output and reporting a duration', async () => {
   const exec = async () => {
     const err: any = new Error('Command failed');
     err.code = 1;
@@ -69,9 +73,11 @@ test('runCommand: classifies a non-zero exit code as failed, preserving output',
   assert.equal(result.outcome, 'failed');
   assert.equal(result.exitCode, 1);
   assert.match(result.output, /no-unused-vars/);
+  assert.equal(typeof result.durationMs, 'number');
+  assert.ok(result.durationMs! >= 0);
 });
 
-test('runCommand: classifies a timeout as errored, not failed', async () => {
+test('runCommand: classifies a timeout as errored, not failed, and still reports a duration', async () => {
   const exec = async () => {
     const err: any = new Error('Command timed out');
     err.killed = true;
@@ -81,9 +87,11 @@ test('runCommand: classifies a timeout as errored, not failed', async () => {
   const result = await runCommand('lint', { cwd: '/tmp', exec, timeoutMs: 5000 });
   assert.equal(result.outcome, 'errored');
   assert.equal(result.exitCode, null);
+  assert.equal(typeof result.durationMs, 'number');
+  assert.ok(result.durationMs! >= 0);
 });
 
-test('runCommand: classifies a spawn-level error (ENOENT) as errored, not failed', async () => {
+test('runCommand: classifies a spawn-level error (ENOENT) as errored, not failed, and still reports a duration', async () => {
   const exec = async () => {
     const err: any = new Error('spawn npm ENOENT');
     err.code = 'ENOENT';
@@ -91,6 +99,8 @@ test('runCommand: classifies a spawn-level error (ENOENT) as errored, not failed
   };
   const result = await runCommand('lint', { cwd: '/tmp', exec });
   assert.equal(result.outcome, 'errored');
+  assert.equal(typeof result.durationMs, 'number');
+  assert.ok(result.durationMs! >= 0);
 });
 
 test('runInstall: uses "npm ci" when a lockfile was materialized', async () => {
@@ -113,7 +123,7 @@ test('runInstall: uses "npm install" when no lockfile was materialized', async (
   assert.deepEqual(calledArgs, ['install']);
 });
 
-test('runInstall: classifies a failed install as errored, never failed', async () => {
+test('runInstall: classifies a failed install as errored, never failed, and reports a duration', async () => {
   const exec = async () => {
     const err: any = new Error('npm ERR! 404 Not Found');
     err.code = 1;
@@ -124,9 +134,11 @@ test('runInstall: classifies a failed install as errored, never failed', async (
   const result = await runInstall({ cwd: '/tmp', hasLockfile: false, exec });
   assert.equal(result.outcome, 'errored');
   assert.match(result.output, /404 Not Found/);
+  assert.equal(typeof result.durationMs, 'number');
+  assert.ok(result.durationMs! >= 0);
 });
 
-test('runInstall: classifies a timed-out install as errored', async () => {
+test('runInstall: classifies a timed-out install as errored, and reports a duration', async () => {
   const exec = async () => {
     const err: any = new Error('Command timed out');
     err.killed = true;
@@ -135,4 +147,14 @@ test('runInstall: classifies a timed-out install as errored', async () => {
   };
   const result = await runInstall({ cwd: '/tmp', hasLockfile: false, exec });
   assert.equal(result.outcome, 'errored');
+  assert.equal(typeof result.durationMs, 'number');
+  assert.ok(result.durationMs! >= 0);
+});
+
+test('runInstall: a successful install reports a measured duration', async () => {
+  const exec = async () => ({ stdout: 'added 1 package', stderr: '' });
+  const result = await runInstall({ cwd: '/tmp', hasLockfile: false, exec });
+  assert.equal(result.outcome, 'passed');
+  assert.equal(typeof result.durationMs, 'number');
+  assert.ok(result.durationMs! >= 0);
 });

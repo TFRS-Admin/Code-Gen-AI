@@ -202,6 +202,7 @@ epics:
         status: in_progress
         evidence:
           - "docs/engineering/M4_VERIFICATION_ENGINE_PLAN.md"
+          - "adr/0008-m4-verification-scope-boundaries.md"
           - "server/src/services/verification/workspace.ts"
           - "server/src/services/verification/checks.ts"
           - "server/src/services/verification/verify.ts"
@@ -209,14 +210,20 @@ epics:
           - "server/src/routes/jobs.ts"
         note: >
           qa_runs table exists (001_initial.sql:44-56) and now has a real writer for all four
-          checks plus a bounded repair loop: M4 slices 2-3 (2026-07-06,
-          feature/m4-verification-slice-3) run lint/build/typecheck/test (each independently
+          checks plus a bounded repair loop: M4 slices 2-4 (2026-07-06,
+          feature/m4-verification-slice-4) run lint/build/typecheck/test (each independently
           detected/skippable) against a materialized copy of the feature branch, persist one
           full qa_runs row per attempt, and repair a failed check up to 2 times (feeding the
           exact failure back to the provider) before failing the job. An errored check still
-          fails immediately, never repaired. GET /api/jobs/:id/qa exposes the results. Not yet
-          run against a live job in a real environment (no Postgres/GitHub token/provider API
-          key available in this session) — see RISK-18 in project/risks.yaml.
+          fails immediately, never repaired. GET /api/jobs/:id/qa exposes the results. Slice 4
+          added an in-memory durationMs field per check (checks.ts) and made four scope
+          decisions final via ADR-0008 (preview-error repair, accessibility smoke, and license
+          checks all deferred; timing added, not persisted). This session ran the qa_runs
+          persistence layer for real against a live local Postgres instance (all 5 migrations
+          applied, persistQaRun/listQaRuns round-tripped correctly) — the first time in this
+          project's history. Still not run against a live job end-to-end in a real environment:
+          this session's GITHUB_TOKEN is a non-functional session proxy placeholder and no
+          provider API key was available — see RISK-18 in project/risks.yaml.
       - id: TICKET-033
         title: "Add review decisions"
         status: todo

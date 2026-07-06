@@ -118,7 +118,12 @@ test('pollPreviewReady: gives up and returns false once the timeout elapses', as
 const ALL_CHECK_NAMES: CheckName[] = ['lint', 'build', 'typecheck', 'test'];
 
 function makeCheckResult(outcome: CheckOutcome, output = ''): CheckResult {
-  return { outcome, output, exitCode: outcome === 'passed' ? 0 : outcome === 'failed' ? 1 : null };
+  return {
+    outcome,
+    output,
+    exitCode: outcome === 'passed' ? 0 : outcome === 'failed' ? 1 : null,
+    durationMs: outcome === 'skipped' ? null : 1234,
+  };
 }
 
 function fakeQaRun(): QaRunRow {

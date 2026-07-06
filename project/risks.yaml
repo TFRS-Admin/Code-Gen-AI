@@ -45,6 +45,11 @@ risks:
       component_manifests. Not fully mitigated: when no registry component is matched
       (componentMetadata is null), license is recorded as the literal string "unknown" rather
       than a reviewed value — there is still no human review step gating on that field.
+      Confirmed by adr/0008-m4-verification-scope-boundaries.md (2026-07-06) as deferred out of
+      M4's verification-engine scope entirely (not just "later within M4"): this risk and
+      RISK-8 already own "license concerns for harvested components" via M3.3/manifest work, and
+      a second license-checking mechanism inside the verification engine would duplicate rather
+      than complete that.
 
   - id: RISK-4
     title: "TFRS drift"
@@ -57,7 +62,13 @@ risks:
       TFRS class adapter exists and is unit-tested
       (server/src/services/harvester/tfrs-adapter.ts, tfrs-adapter.test.ts). No automated
       design checklist / accessibility smoke test found (docs/15-gathering-results.md targets
-      an 85%+ accessibility smoke pass rate with no implementation evidence).
+      an 85%+ accessibility smoke pass rate with no implementation evidence). Explicitly
+      confirmed deferred, not an M4 slice 4 deliverable, by
+      adr/0008-m4-verification-scope-boundaries.md (2026-07-06): the current verification
+      engine's run-a-package.json-script model has no way to test against a running instance,
+      which an axe-core-style smoke check needs — building that is a materially larger scope
+      than extending the existing four checks. Revisit alongside live-preview infrastructure
+      work, not as a standalone M4 slice.
 
   - id: RISK-5
     title: "Lifecycle bypass"
@@ -117,7 +128,9 @@ risks:
     repo_evidence: >
       docs/06-component-harvester.md:118-145 defines allowed/review/disallowed dependency
       lists, but server/src/services/harvester has no code that checks a component's
-      dependencies against these lists.
+      dependencies against these lists. adr/0008-m4-verification-scope-boundaries.md (2026-07-06)
+      confirms license/dependency-allowlist enforcement stays owned here (M3.3/harvester), not
+      duplicated as a new check inside the M4 verification engine.
 
   - id: RISK-9
     title: "Documentation drift between docs/08, docs/09, docs/10 and shipped architecture"
@@ -280,11 +293,21 @@ risks:
       fixable lint/build/typecheck/test error, and confirm: the failure is detected, the repair
       prompt is sent, the provider's fix is committed, and re-verification passes. Tracked as
       SPR-12 in project/active-sprint.yaml.
-    status: open
+    status: partially_mitigated
     repo_evidence: >
-      server/src/services/orchestrator/index.test.ts's 10 new tests all call
-      decideRepairAction() directly with hand-constructed VerificationResult fixtures — none of
-      them invoke a real provider, real GitHub API, or real qa_runs table. No session so far has
-      had a live Postgres/GitHub token/provider API key available to run the full pipeline
-      end-to-end. M4's "Repair fixes at least one known import/build error" exit criterion
-      (project/milestones.yaml M4) explicitly requires this and is not yet met.
+      server/src/services/orchestrator/index.test.ts's 10 tests all call decideRepairAction()
+      directly with hand-constructed VerificationResult fixtures — none of them invoke a real
+      provider, real GitHub API, or real qa_runs table. M4 slice 4 (2026-07-06) closed part of
+      this gap: with a manually-started local Postgres instance, all 5 migrations
+      (server/src/db/migrations/*.sql) were applied for the first time in this project's
+      history, and persistQaRun/listQaRuns (server/src/services/verification/verify.ts) were
+      exercised via a disposable script against that genuine database — not injected fakes —
+      confirming correct round-trip behavior and most-recent-first ordering. The GitHub-API and
+      real-provider legs remain unverified and are now a distinct, confirmed blocker rather than
+      an untried one: this session's GITHUB_TOKEN environment variable is a Claude Code session
+      proxy placeholder, confirmed non-functional against the real GitHub API (direct request
+      returned 403 "GitHub access is not enabled for this session. An org admin must connect the
+      Claude GitHub App for this organization."), and neither OPENAI_API_KEY nor
+      ANTHROPIC_API_KEY is present in this environment. M4's "Repair fixes at least one known
+      import/build error" exit criterion (project/milestones.yaml M4) still requires a full
+      end-to-end run through those two layers and is not yet met.

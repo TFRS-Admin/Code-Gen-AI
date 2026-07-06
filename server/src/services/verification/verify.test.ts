@@ -47,6 +47,10 @@ test('runVerification: skips every check and persists an all-null result when pa
     Object.fromEntries(Object.entries(result.checks).map(([k, v]) => [k, v.outcome])),
     { lint: 'skipped', build: 'skipped', typecheck: 'skipped', test: 'skipped' }
   );
+  // Skipped checks never ran, so duration is explicitly null (not 0) for all of them.
+  for (const name of ['lint', 'build', 'typecheck', 'test'] as const) {
+    assert.equal(result.checks[name].durationMs, null);
+  }
   assert.deepEqual(calls[0], {
     jobId: 'job-1',
     lintPassed: null,
@@ -116,6 +120,11 @@ test('runVerification: runs all four checks in order and persists a fully-passed
 
   assert.deepEqual(runCalls, ['lint', 'build', 'typecheck', 'test']);
   assert.equal(result.ok, true);
+  // Every check actually ran (via runCommand), so each reports a real measured duration.
+  for (const name of ['lint', 'build', 'typecheck', 'test'] as const) {
+    assert.equal(typeof result.checks[name].durationMs, 'number');
+    assert.ok(result.checks[name].durationMs! >= 0);
+  }
   assert.deepEqual(calls[0], {
     jobId: 'job-3',
     lintPassed: true,
@@ -154,6 +163,8 @@ test('runVerification: a failed lint blocks "ok" even when the other three check
   assert.equal(result.checks.build.outcome, 'passed');
   assert.equal(result.checks.typecheck.outcome, 'passed');
   assert.equal(result.checks.test.outcome, 'passed');
+  // The failed check still actually ran, so it reports a real duration too.
+  assert.equal(typeof result.checks.lint.durationMs, 'number');
   assert.equal(calls[0].lintPassed, false);
   assert.equal(calls[0].buildPassed, true);
 });
@@ -178,6 +189,8 @@ test('runVerification: an errored check (e.g. timeout) blocks "ok" the same as a
 
   assert.equal(result.ok, false);
   assert.equal(result.checks.build.outcome, 'errored');
+  // The timeout still happened mid-execution, so it reports a real duration too.
+  assert.equal(typeof result.checks.build.durationMs, 'number');
   assert.equal(calls[0].buildPassed, null); // never fabricated as failed or passed
 });
 
@@ -237,6 +250,12 @@ test('runVerification: when install fails, every available check is errored and 
   assert.equal(result.checks.test.outcome, 'errored');
   assert.equal(result.checks.build.outcome, 'skipped');
   assert.equal(result.checks.typecheck.outcome, 'skipped');
+  // Install failed before any check's command ran, so even the "errored"
+  // (not just "skipped") checks report null duration, not a fabricated 0.
+  assert.equal(result.checks.lint.durationMs, null);
+  assert.equal(result.checks.test.durationMs, null);
+  assert.equal(result.checks.build.durationMs, null);
+  assert.equal(result.checks.typecheck.durationMs, null);
   assert.equal(calls[0].lintPassed, null);
   assert.equal(calls[0].buildPassed, null);
 });
@@ -256,6 +275,9 @@ test('runVerification: when workspace materialization fails, every check is erro
   for (const name of ['lint', 'build', 'typecheck', 'test'] as const) {
     assert.equal(result.checks[name].outcome, 'errored');
     assert.match(result.checks[name].output, /rate limited/);
+    // Errored here because materialization never got far enough to run a
+    // command at all — durationMs is null, not a fabricated 0.
+    assert.equal(result.checks[name].durationMs, null);
   }
   assert.equal(calls[0].lintPassed, null);
   assert.equal(calls[0].buildPassed, null);
