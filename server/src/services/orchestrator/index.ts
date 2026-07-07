@@ -515,7 +515,7 @@ async function runJobPipeline(jobId: string): Promise<void> {
 
   // Railway auto-deploys a preview environment for the new branch as soon as
   // it exists on GitHub. Capture the expected preview URL now so the PREVIEW
-  // step can poll it once QA has finished.
+  // step can record it on the job right away, without waiting for QA/deploy.
   const previewUrl = buildPreviewUrl(featureBranch);
   if (previewUrl) {
     await appendLog(jobId, `[BUILD] Expected Railway preview URL: ${previewUrl}`);
@@ -609,23 +609,37 @@ async function runJobPipeline(jobId: string): Promise<void> {
   await appendLog(jobId, '[QA] Complete.');
 
   // ── Step 5: PREVIEW ──
+  // Sets the expected preview_url immediately and moves on — it no longer
+  // blocks the pipeline for up to PREVIEW_POLL_TIMEOUT_MS waiting for Railway
+  // to actually come up. Actual readiness is confirmed by a detached
+  // background poll (not awaited here) and surfaced to the frontend on
+  // demand via GET /api/jobs/:id/preview, which the frontend already polls
+  // independently of job status.
   await updateJobStatus(jobId, 'preview');
   await appendLog(jobId, '[PREVIEW] Preparing preview...');
 
   if (previewUrl) {
-    await appendLog(jobId, `[PREVIEW] Waiting for Railway to deploy ${featureBranch}...`);
-    const ready = await pollPreviewReady(previewUrl);
-    if (ready) {
-      await query(
-        `UPDATE jobs SET preview_url = $1, preview_ready_at = NOW(), updated_at = NOW() WHERE id = $2`,
-        [previewUrl, jobId]
-      );
-      await logEvent(jobId, 'job.preview.ready', { previewUrl });
-      await appendLog(jobId, `[PREVIEW] Preview ready: ${previewUrl}`);
-    } else {
-      await logEvent(jobId, 'job.preview.timeout', { previewUrl });
-      await appendLog(jobId, `[PREVIEW] Timed out waiting for the preview to come up after 2 minutes.`);
-    }
+    await query(
+      `UPDATE jobs SET preview_url = $1, updated_at = NOW() WHERE id = $2`,
+      [previewUrl, jobId]
+    );
+    await logEvent(jobId, 'job.preview.expected', { previewUrl });
+    await appendLog(jobId, `[PREVIEW] Preview URL set: ${previewUrl}. Confirming readiness in the background.`);
+
+    pollPreviewReady(previewUrl)
+      .then(async (ready) => {
+        if (ready) {
+          await query(`UPDATE jobs SET preview_ready_at = NOW(), updated_at = NOW() WHERE id = $1`, [jobId]);
+          await logEvent(jobId, 'job.preview.ready', { previewUrl });
+          await appendLog(jobId, `[PREVIEW] Preview confirmed ready: ${previewUrl}`);
+        } else {
+          await logEvent(jobId, 'job.preview.timeout', { previewUrl });
+          await appendLog(jobId, '[PREVIEW] Timed out waiting for the preview to come up after 2 minutes.');
+        }
+      })
+      .catch((err: any) => {
+        console.error(`[orchestrator] Background preview poll failed for job ${jobId}:`, err.message);
+      });
   } else {
     await logEvent(jobId, 'job.preview.skipped');
     await appendLog(jobId, '[PREVIEW] Skipped — no Railway project configured.');
